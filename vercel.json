@@ -1,0 +1,11 @@
+{
+    "buildCommand": "cd Medicate-3d-main && npm install && npm run build",
+    "outputDirectory": "Medicate-3d-main/build",
+    "framework": null,
+    "rewrites": [
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
+        }
+    ]
+}
