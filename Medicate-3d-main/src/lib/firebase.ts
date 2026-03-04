@@ -28,7 +28,7 @@ try {
 }
 
 // Initialize Firebase Authentication with fallback persistence
-import { initializeAuth, browserLocalPersistence, inMemoryPersistence } from "firebase/auth";
+import { initializeAuth, browserLocalPersistence, inMemoryPersistence, browserPopupRedirectResolver } from "firebase/auth";
 
 let persistence = browserLocalPersistence;
 try {
@@ -41,6 +41,9 @@ try {
     persistence = inMemoryPersistence;
 }
 
+// browserPopupRedirectResolver is required for signInWithPopup to work.
+// Without it, Firebase throws auth/argument-error when the popup is attempted.
 export const auth = initializeAuth(app, {
-    persistence: persistence
+    persistence,
+    popupRedirectResolver: browserPopupRedirectResolver,
 });
