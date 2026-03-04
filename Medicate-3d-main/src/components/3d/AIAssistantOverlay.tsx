@@ -7,6 +7,8 @@ interface AIAssistantOverlayProps {
     isOpen: boolean;
     onClose: () => void;
     context?: string; // e.g., "Heart Dissection"
+    triggerQuery?: string | null;
+    onQueryProcessed?: () => void;
 }
 
 // Initialize Gemini (Replace with your actual key management if needed)
@@ -15,7 +17,7 @@ interface AIAssistantOverlayProps {
 const API_KEY = "AIzaSyAf0PQug-lFt2-rGHCxHdeMIIsx4xMBH-0";
 const genAI = new GoogleGenerativeAI(API_KEY);
 
-export function AIAssistantOverlay({ isOpen, onClose, context = "General Anatomy" }: AIAssistantOverlayProps) {
+export function AIAssistantOverlay({ isOpen, onClose, context = "General Anatomy", triggerQuery, onQueryProcessed }: AIAssistantOverlayProps) {
     const [messages, setMessages] = useState<{ role: 'user' | 'model', text: string }[]>([
         { role: 'model', text: `Hello! I'm your surgical AI assistant. I'm monitoring your ${context} session. Ask me anything.` }
     ]);
@@ -23,6 +25,13 @@ export function AIAssistantOverlay({ isOpen, onClose, context = "General Anatomy
     const [isLoading, setIsLoading] = useState(false);
     const [isMuted, setIsMuted] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (triggerQuery && isOpen) {
+            handleSend(triggerQuery);
+            if (onQueryProcessed) onQueryProcessed();
+        }
+    }, [triggerQuery, isOpen]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -40,12 +49,12 @@ export function AIAssistantOverlay({ isOpen, onClose, context = "General Anatomy
         window.speechSynthesis.speak(utterance);
     };
 
-    const handleSend = async () => {
-        if (!input.trim()) return;
+    const handleSend = async (overrideInput?: string) => {
+        const userMsg = overrideInput || input;
+        if (!userMsg?.trim()) return;
 
-        const userMsg = input;
         setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
-        setInput('');
+        if (!overrideInput) setInput('');
         setIsLoading(true);
 
         try {
@@ -153,7 +162,7 @@ export function AIAssistantOverlay({ isOpen, onClose, context = "General Anatomy
                                 className="w-full bg-black/40 border border-white/10 rounded-xl pl-4 pr-10 py-2.5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-[#00A896]/50"
                             />
                             <button
-                                onClick={handleSend}
+                                onClick={() => handleSend()}
                                 disabled={!input.trim()}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-[#00A896] text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#008f7f] transition-all"
                             >

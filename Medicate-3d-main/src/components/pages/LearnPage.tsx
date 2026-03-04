@@ -266,8 +266,8 @@ export function LearnPage() {
 
   return (
     <div className="min-h-screen pt-16 flex">
-      {/* Proctored Exam Overlay */}
-      {examOpen && selectedCourse && (
+      {/* Proctored Exam Overlay - Isolate rendering to mask background */}
+      {examOpen && selectedCourse ? (
         <ProctorExam
           weekId={examOpen.weekId}
           weekTitle={examOpen.weekTitle}
@@ -275,225 +275,121 @@ export function LearnPage() {
           onClose={() => setExamOpen(null)}
           onComplete={handleExamComplete}
         />
-      )}
-      <AnimatePresence mode="wait">
-        {selectedCourse ? (
-          // Course Detail View with Sidebar
-          <>
-            {/* Left Sidebar */}
-            <motion.div
-              initial={{ x: -300, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -300, opacity: 0 }}
-              className="w-72 bg-card border-r border-border fixed lg:static inset-y-0 left-0 top-16 z-40 flex flex-col overflow-y-auto"
-            >
-              {/* Course Header - Animated from Course Card */}
-              {selectedCourseData && (
-                <motion.div
-                  layoutId={`course-${selectedCourse}`}
-                  className="p-4 border-b border-border cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={handleBackToCourses}
-                >
-                  <ImageWithFallback
-                    src={selectedCourseData.image}
-                    alt={selectedCourseData.title}
-                    className="w-full h-32 object-cover rounded-xl mb-3"
-                  />
-                  <h4 className="text-xs mb-1">{selectedCourseData.batch}</h4>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <div className="flex-1 bg-muted rounded-full h-2">
-                      <div
-                        className="bg-[#00A896] h-2 rounded-full transition-all"
-                        style={{ width: `${selectedCourseData.progress}%` }}
-                      />
-                    </div>
-                    <span>{selectedCourseData.progress}%</span>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Navigation Sections */}
-              <div className="flex-1 p-4 space-y-2">
-                {selectedCourseContent?.sections.map((section: any) => (
-                  <div key={section.id}>
-                    <button
-                      onClick={() => setExpandedSection(expandedSection === section.id ? null : section.id)}
-                      className="w-full flex items-center justify-between p-3 rounded-xl bg-[#00A896] text-white hover:bg-[#008f7f] transition-colors"
-                    >
-                      <span className="text-sm">{section.title}</span>
-                      {expandedSection === section.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                    </button>
-
-                    <AnimatePresence>
-                      {expandedSection === section.id && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          className="ml-3 mt-2 space-y-1"
-                        >
-                          {section.items.map((item: any) => (
-                            <button
-                              key={item.id}
-                              className="w-full text-left p-2 text-sm text-foreground hover:bg-muted rounded-lg transition-colors"
-                            >
-                              {item.title}
-                            </button>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                ))}
-
-                {/* MediVerse Learning Assistance */}
-                <div>
-                  <button
-                    onClick={() => setExpandedSection(expandedSection === 'assistance' ? null : 'assistance')}
-                    className="w-full flex items-center justify-between p-3 rounded-xl bg-[#00A896] text-white hover:bg-[#008f7f] transition-colors"
+      ) : (
+        <AnimatePresence mode="wait">
+          {selectedCourse ? (
+            // Course Detail View with Sidebar
+            <>
+              {/* Left Sidebar */}
+              <motion.div
+                initial={{ x: -300, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: -300, opacity: 0 }}
+                className="w-72 bg-card border-r border-border fixed lg:static inset-y-0 left-0 top-16 z-40 flex flex-col overflow-y-auto"
+              >
+                {/* Course Header - Animated from Course Card */}
+                {selectedCourseData && (
+                  <motion.div
+                    layoutId={`course-${selectedCourse}`}
+                    className="p-4 border-b border-border cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={handleBackToCourses}
                   >
-                    <span className="text-sm">MediVerse Learning Assistance</span>
-                    {expandedSection === 'assistance' ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                  </button>
-
-                  <AnimatePresence>
-                    {expandedSection === 'assistance' && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="ml-3 mt-2 space-y-1"
-                      >
-                        <button className="w-full text-left p-2 text-sm text-foreground hover:bg-muted rounded-lg transition-colors">
-                          MediVerse Learning Assistance
-                        </button>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                {/* Week Sections */}
-                {selectedCourseContent?.weeks.map((week: any) => (
-                  <div key={week.id}>
-                    <button
-                      onClick={() => !week.locked && setExpandedWeek(expandedWeek === week.id ? null : week.id)}
-                      disabled={week.locked}
-                      className={`w-full flex items-center justify-between p-3 rounded-xl transition-colors ${week.locked
-                        ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                        : 'bg-muted hover:bg-muted/80 text-foreground'
-                        }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        {week.locked && <Lock size={14} />}
-                        <span className="text-sm">{week.title}</span>
+                    <ImageWithFallback
+                      src={selectedCourseData.image}
+                      alt={selectedCourseData.title}
+                      className="w-full h-32 object-cover rounded-xl mb-3"
+                    />
+                    <h4 className="text-xs mb-1">{selectedCourseData.batch}</h4>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="flex-1 bg-muted rounded-full h-2">
+                        <div
+                          className="bg-[#00A896] h-2 rounded-full transition-all"
+                          style={{ width: `${selectedCourseData.progress}%` }}
+                        />
                       </div>
-                      {!week.locked && (
-                        expandedWeek === week.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />
-                      )}
-                    </button>
+                      <span>{selectedCourseData.progress}%</span>
+                    </div>
+                  </motion.div>
+                )}
 
-                    <AnimatePresence>
-                      {expandedWeek === week.id && !week.locked && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          className="ml-3 mt-2 space-y-1"
-                        >
-                          {week.items.map((item: any) => {
-                            const isAssessmentDone = item.type === 'quiz' && completedAssessments[week.id] !== undefined;
-                            const assessmentScore = completedAssessments[week.id];
-                            return (
+                {/* Navigation Sections */}
+                <div className="flex-1 p-4 space-y-2">
+                  {selectedCourseContent?.sections.map((section: any) => (
+                    <div key={section.id}>
+                      <button
+                        onClick={() => setExpandedSection(expandedSection === section.id ? null : section.id)}
+                        className="w-full flex items-center justify-between p-3 rounded-xl bg-[#00A896] text-white hover:bg-[#008f7f] transition-colors"
+                      >
+                        <span className="text-sm">{section.title}</span>
+                        {expandedSection === section.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      </button>
+
+                      <AnimatePresence>
+                        {expandedSection === section.id && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="ml-3 mt-2 space-y-1"
+                          >
+                            {section.items.map((item: any) => (
                               <button
                                 key={item.id}
-                                onClick={() => handleItemClick(item, week)}
-                                className={`w-full text-left p-2 text-sm text-foreground rounded-lg transition-colors flex items-center justify-between group ${item.type === 'quiz' ? 'hover:bg-[#EF476F]/10' : 'hover:bg-background'
-                                  }`}
+                                className="w-full text-left p-2 text-sm text-foreground hover:bg-muted rounded-lg transition-colors"
                               >
-                                <div className="flex items-center gap-2">
-                                  {item.type === 'quiz'
-                                    ? <Shield size={14} className="text-[#EF476F]" />
-                                    : getItemIcon(item.type)}
-                                  <span className="text-xs">{item.title}</span>
-                                  {item.type === 'quiz' && !isAssessmentDone && (
-                                    <span className="text-[9px] px-1.5 py-0.5 bg-[#EF476F]/20 text-[#EF476F] rounded font-bold tracking-wider">PROCTORED</span>
-                                  )}
-                                </div>
-                                {isAssessmentDone ? (
-                                  <div className="flex items-center gap-1">
-                                    <Star size={12} className="text-[#FFD166]" />
-                                    <span className="text-[10px] text-[#FFD166] font-bold">{assessmentScore}%</span>
-                                  </div>
-                                ) : item.completed ? (
-                                  <CheckCircle2 size={14} className="text-green-500" />
-                                ) : null}
+                                {item.title}
                               </button>
-                            );
-                          })}
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  ))}
+
+                  {/* MediVerse Learning Assistance */}
+                  <div>
+                    <button
+                      onClick={() => setExpandedSection(expandedSection === 'assistance' ? null : 'assistance')}
+                      className="w-full flex items-center justify-between p-3 rounded-xl bg-[#00A896] text-white hover:bg-[#008f7f] transition-colors"
+                    >
+                      <span className="text-sm">MediVerse Learning Assistance</span>
+                      {expandedSection === 'assistance' ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    </button>
+
+                    <AnimatePresence>
+                      {expandedSection === 'assistance' && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="ml-3 mt-2 space-y-1"
+                        >
+                          <button className="w-full text-left p-2 text-sm text-foreground hover:bg-muted rounded-lg transition-colors">
+                            MediVerse Learning Assistance
+                          </button>
                         </motion.div>
                       )}
                     </AnimatePresence>
                   </div>
-                ))}
-              </div>
-            </motion.div>
 
-            {/* Main Content Area */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 overflow-y-auto"
-            >
-              <div className="max-w-5xl mx-auto p-6 lg:p-8">
-                {/* MediVerse Learning Assistance Section */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mb-8 bg-gradient-to-br from-[#00A896]/10 to-[#028090]/10 border border-[#00A896]/30 rounded-2xl p-6"
-                >
-                  <div className="flex items-center gap-3 mb-4">
-                    <ChevronDown className="text-[#00A896]" size={24} />
-                    <h3>MediVerse Learning Assistance</h3>
-                  </div>
-                  <div className="flex items-center gap-4 p-4 bg-card rounded-xl">
-                    <div className="w-12 h-12 rounded-xl bg-[#00A896] flex items-center justify-center">
-                      <Globe className="text-white" size={24} />
-                    </div>
-                    <div>
-                      <h4 className="text-sm mb-1">MediVerse Learning Assistance</h4>
-                      <p className="text-xs text-muted-foreground">
-                        Get AI-powered help with medical concepts and procedures
-                      </p>
-                    </div>
-                  </div>
-                </motion.div>
-
-                {/* Week Sections */}
-                <div className="space-y-4">
-                  {selectedCourseContent?.weeks.map((week: any, index: number) => (
-                    <motion.div
-                      key={week.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                    >
+                  {/* Week Sections */}
+                  {selectedCourseContent?.weeks.map((week: any) => (
+                    <div key={week.id}>
                       <button
                         onClick={() => !week.locked && setExpandedWeek(expandedWeek === week.id ? null : week.id)}
                         disabled={week.locked}
-                        className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-all ${week.locked
-                          ? 'bg-muted border-border text-muted-foreground cursor-not-allowed'
-                          : 'bg-card border-border hover:border-[#00A896] text-foreground'
+                        className={`w-full flex items-center justify-between p-3 rounded-xl transition-colors ${week.locked
+                          ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                          : 'bg-muted hover:bg-muted/80 text-foreground'
                           }`}
                       >
-                        <div className="flex items-center gap-3">
-                          <ChevronRight
-                            size={24}
-                            className={`transition-transform ${expandedWeek === week.id ? 'rotate-90' : ''}`}
-                          />
-                          <h3>{week.title}</h3>
-                          {week.locked && <Lock size={18} />}
+                        <div className="flex items-center gap-2">
+                          {week.locked && <Lock size={14} />}
+                          <span className="text-sm">{week.title}</span>
                         </div>
+                        {!week.locked && (
+                          expandedWeek === week.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />
+                        )}
                       </button>
 
                       <AnimatePresence>
@@ -502,138 +398,243 @@ export function LearnPage() {
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="mt-4 ml-8 space-y-3"
+                            className="ml-3 mt-2 space-y-1"
                           >
                             {week.items.map((item: any) => {
                               const isAssessmentDone = item.type === 'quiz' && completedAssessments[week.id] !== undefined;
                               const assessmentScore = completedAssessments[week.id];
-                              const isQuiz = item.type === 'quiz';
                               return (
-                                <motion.div
+                                <button
                                   key={item.id}
-                                  whileHover={{ scale: 1.01 }}
-                                  whileTap={{ scale: 0.99 }}
                                   onClick={() => handleItemClick(item, week)}
-                                  className={`flex items-center justify-between p-4 bg-card border rounded-xl cursor-pointer group transition-all ${isQuiz
-                                      ? 'border-[#EF476F]/30 hover:border-[#EF476F] hover:bg-[#EF476F]/5'
-                                      : 'border-border hover:border-[#00A896]'
+                                  className={`w-full text-left p-2 text-sm text-foreground rounded-lg transition-colors flex items-center justify-between group ${item.type === 'quiz' ? 'hover:bg-[#EF476F]/10' : 'hover:bg-background'
                                     }`}
                                 >
-                                  <div className="flex items-center gap-3">
-                                    {isQuiz
-                                      ? <div className="w-8 h-8 rounded-lg bg-[#EF476F]/15 border border-[#EF476F]/30 flex items-center justify-center flex-shrink-0">
-                                        <Shield size={15} className="text-[#EF476F]" />
-                                      </div>
+                                  <div className="flex items-center gap-2">
+                                    {item.type === 'quiz'
+                                      ? <Shield size={14} className="text-[#EF476F]" />
                                       : getItemIcon(item.type)}
-                                    <div>
-                                      <p className="text-sm font-medium">{item.title}</p>
-                                      {isQuiz ? (
-                                        <div className="flex items-center gap-2 mt-1">
-                                          <span className="text-[10px] px-1.5 py-0.5 bg-[#EF476F]/20 text-[#EF476F] rounded font-black tracking-wider">PROCTORED</span>
-                                          <span className="text-xs text-muted-foreground">{item.duration}</span>
-                                        </div>
-                                      ) : item.duration ? (
-                                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                                          <Clock size={12} />
-                                          {item.duration}
-                                        </div>
-                                      ) : null}
-                                    </div>
+                                    <span className="text-xs">{item.title}</span>
+                                    {item.type === 'quiz' && !isAssessmentDone && (
+                                      <span className="text-[9px] px-1.5 py-0.5 bg-[#EF476F]/20 text-[#EF476F] rounded font-bold tracking-wider">PROCTORED</span>
+                                    )}
                                   </div>
                                   {isAssessmentDone ? (
-                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-[#FFD166]/10 border border-[#FFD166]/30 rounded-lg">
-                                      <Star size={13} className="text-[#FFD166]" />
-                                      <span className="text-sm font-bold text-[#FFD166]">{assessmentScore}%</span>
+                                    <div className="flex items-center gap-1">
+                                      <Star size={12} className="text-[#FFD166]" />
+                                      <span className="text-[10px] text-[#FFD166] font-bold">{assessmentScore}%</span>
                                     </div>
                                   ) : item.completed ? (
-                                    <CheckCircle2 className="text-green-500" size={20} />
-                                  ) : isQuiz ? (
-                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-[#EF476F]/15 border border-[#EF476F]/30 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
-                                      <Shield size={13} className="text-[#EF476F]" />
-                                      <span className="text-xs font-bold text-[#EF476F]">Start Exam</span>
-                                    </div>
-                                  ) : (
-                                    <button className="opacity-0 group-hover:opacity-100 px-4 py-2 bg-[#00A896] text-white rounded-lg text-xs transition-all">
-                                      Start
-                                    </button>
-                                  )}
-                                </motion.div>
+                                    <CheckCircle2 size={14} className="text-green-500" />
+                                  ) : null}
+                                </button>
                               );
                             })}
                           </motion.div>
                         )}
                       </AnimatePresence>
-                    </motion.div>
+                    </div>
                   ))}
+                </div>
+              </motion.div>
+
+              {/* Main Content Area */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="flex-1 overflow-y-auto"
+              >
+                <div className="max-w-5xl mx-auto p-6 lg:p-8">
+                  {/* MediVerse Learning Assistance Section */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mb-8 bg-gradient-to-br from-[#00A896]/10 to-[#028090]/10 border border-[#00A896]/30 rounded-2xl p-6"
+                  >
+                    <div className="flex items-center gap-3 mb-4">
+                      <ChevronDown className="text-[#00A896]" size={24} />
+                      <h3>MediVerse Learning Assistance</h3>
+                    </div>
+                    <div className="flex items-center gap-4 p-4 bg-card rounded-xl">
+                      <div className="w-12 h-12 rounded-xl bg-[#00A896] flex items-center justify-center">
+                        <Globe className="text-white" size={24} />
+                      </div>
+                      <div>
+                        <h4 className="text-sm mb-1">MediVerse Learning Assistance</h4>
+                        <p className="text-xs text-muted-foreground">
+                          Get AI-powered help with medical concepts and procedures
+                        </p>
+                      </div>
+                    </div>
+                  </motion.div>
+
+                  {/* Week Sections */}
+                  <div className="space-y-4">
+                    {selectedCourseContent?.weeks.map((week: any, index: number) => (
+                      <motion.div
+                        key={week.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                      >
+                        <button
+                          onClick={() => !week.locked && setExpandedWeek(expandedWeek === week.id ? null : week.id)}
+                          disabled={week.locked}
+                          className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-all ${week.locked
+                            ? 'bg-muted border-border text-muted-foreground cursor-not-allowed'
+                            : 'bg-card border-border hover:border-[#00A896] text-foreground'
+                            }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <ChevronRight
+                              size={24}
+                              className={`transition-transform ${expandedWeek === week.id ? 'rotate-90' : ''}`}
+                            />
+                            <h3>{week.title}</h3>
+                            {week.locked && <Lock size={18} />}
+                          </div>
+                        </button>
+
+                        <AnimatePresence>
+                          {expandedWeek === week.id && !week.locked && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              className="mt-4 ml-8 space-y-3"
+                            >
+                              {week.items.map((item: any) => {
+                                const isAssessmentDone = item.type === 'quiz' && completedAssessments[week.id] !== undefined;
+                                const assessmentScore = completedAssessments[week.id];
+                                const isQuiz = item.type === 'quiz';
+                                return (
+                                  <motion.div
+                                    key={item.id}
+                                    whileHover={{ scale: 1.01 }}
+                                    whileTap={{ scale: 0.99 }}
+                                    onClick={() => handleItemClick(item, week)}
+                                    className={`flex items-center justify-between p-4 bg-card border rounded-xl cursor-pointer group transition-all ${isQuiz
+                                      ? 'border-[#EF476F]/30 hover:border-[#EF476F] hover:bg-[#EF476F]/5'
+                                      : 'border-border hover:border-[#00A896]'
+                                      }`}
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      {isQuiz
+                                        ? <div className="w-8 h-8 rounded-lg bg-[#EF476F]/15 border border-[#EF476F]/30 flex items-center justify-center flex-shrink-0">
+                                          <Shield size={15} className="text-[#EF476F]" />
+                                        </div>
+                                        : getItemIcon(item.type)}
+                                      <div>
+                                        <p className="text-sm font-medium">{item.title}</p>
+                                        {isQuiz ? (
+                                          <div className="flex items-center gap-2 mt-1">
+                                            <span className="text-[10px] px-1.5 py-0.5 bg-[#EF476F]/20 text-[#EF476F] rounded font-black tracking-wider">PROCTORED</span>
+                                            <span className="text-xs text-muted-foreground">{item.duration}</span>
+                                          </div>
+                                        ) : item.duration ? (
+                                          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                                            <Clock size={12} />
+                                            {item.duration}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                    {isAssessmentDone ? (
+                                      <div className="flex items-center gap-2 px-3 py-1.5 bg-[#FFD166]/10 border border-[#FFD166]/30 rounded-lg">
+                                        <Star size={13} className="text-[#FFD166]" />
+                                        <span className="text-sm font-bold text-[#FFD166]">{assessmentScore}%</span>
+                                      </div>
+                                    ) : item.completed ? (
+                                      <CheckCircle2 className="text-green-500" size={20} />
+                                    ) : isQuiz ? (
+                                      <div className="flex items-center gap-2 px-3 py-1.5 bg-[#EF476F]/15 border border-[#EF476F]/30 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Shield size={13} className="text-[#EF476F]" />
+                                        <span className="text-xs font-bold text-[#EF476F]">Start Exam</span>
+                                      </div>
+                                    ) : (
+                                      <button className="opacity-0 group-hover:opacity-100 px-4 py-2 bg-[#00A896] text-white rounded-lg text-xs transition-all">
+                                        Start
+                                      </button>
+                                    )}
+                                  </motion.div>
+                                );
+                              })}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          ) : (
+            // Course Overview Grid
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex-1 overflow-y-auto"
+            >
+              <div className="max-w-7xl mx-auto p-6 lg:p-8">
+                {/* Page Title */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-8"
+                >
+                  <h1 className="mb-2">My Courses</h1>
+                  <p className="text-muted-foreground">
+                    Continue your medical education journey with structured learning paths
+                  </p>
+                </motion.div>
+
+                {/* Course Overview Section */}
+                <div className="mb-8">
+                  <h2 className="mb-6">Course Overview</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {courses.map((course, index) => (
+                      <motion.div
+                        key={course.id}
+                        layoutId={`course-${course.id}`}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.1 }}
+                        className="bg-card border border-border rounded-2xl overflow-hidden cursor-pointer hover:shadow-lg transition-shadow"
+                      >
+                        <ImageWithFallback
+                          src={course.image}
+                          alt={course.title}
+                          className="w-full h-48 object-cover"
+                        />
+                        <div className="p-6">
+                          <h4 className="mb-3">{course.batch}</h4>
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="flex-1 bg-muted rounded-full h-2">
+                              <div
+                                className="bg-[#00A896] h-2 rounded-full transition-all"
+                                style={{ width: `${course.progress}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-muted-foreground">{course.progress}%</span>
+                          </div>
+                          <button
+                            onClick={() => handleResumeCourse(course.id)}
+                            className="w-full py-3 bg-[#00A896] text-white rounded-xl hover:bg-[#008f7f] transition-all"
+                          >
+                            {course.progress > 0 ? 'Resume' : 'Start Course'}
+                          </button>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </motion.div>
-          </>
-        ) : (
-          // Course Overview Grid
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="flex-1 overflow-y-auto"
-          >
-            <div className="max-w-7xl mx-auto p-6 lg:p-8">
-              {/* Page Title */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mb-8"
-              >
-                <h1 className="mb-2">My Courses</h1>
-                <p className="text-muted-foreground">
-                  Continue your medical education journey with structured learning paths
-                </p>
-              </motion.div>
-
-              {/* Course Overview Section */}
-              <div className="mb-8">
-                <h2 className="mb-6">Course Overview</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {courses.map((course, index) => (
-                    <motion.div
-                      key={course.id}
-                      layoutId={`course-${course.id}`}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.1 }}
-                      className="bg-card border border-border rounded-2xl overflow-hidden cursor-pointer hover:shadow-lg transition-shadow"
-                    >
-                      <ImageWithFallback
-                        src={course.image}
-                        alt={course.title}
-                        className="w-full h-48 object-cover"
-                      />
-                      <div className="p-6">
-                        <h4 className="mb-3">{course.batch}</h4>
-                        <div className="flex items-center gap-2 mb-4">
-                          <div className="flex-1 bg-muted rounded-full h-2">
-                            <div
-                              className="bg-[#00A896] h-2 rounded-full transition-all"
-                              style={{ width: `${course.progress}%` }}
-                            />
-                          </div>
-                          <span className="text-xs text-muted-foreground">{course.progress}%</span>
-                        </div>
-                        <button
-                          onClick={() => handleResumeCourse(course.id)}
-                          className="w-full py-3 bg-[#00A896] text-white rounded-xl hover:bg-[#008f7f] transition-all"
-                        >
-                          {course.progress > 0 ? 'Resume' : 'Start Course'}
-                        </button>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>
+      )}
     </div>
   );
 }

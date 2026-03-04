@@ -10,6 +10,7 @@ export interface GestureControls {
   rotationY: number;
   zoom: number;
   mode: 'normal' | 'dissection' | 'pathology';
+  pointer?: { x: number; y: number; isPinching: boolean; isPointing: boolean } | null;
 }
 
 interface HandGestureControllerProps {
@@ -31,6 +32,7 @@ export function HandGestureController({ enabled, onGestureChange }: HandGestureC
   // Store rotation and zoom state
   const rotationRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const zoomRef = useRef<number>(1);
+  const pointerRef = useRef<{ x: number; y: number; isPinching: boolean; isPointing: boolean } | null>(null);
   const lastHandPosRef = useRef<{ x: number; y: number } | null>(null);
   const initializingRef = useRef(false);
 
@@ -69,7 +71,7 @@ export function HandGestureController({ enabled, onGestureChange }: HandGestureC
     });
 
     hands.setOptions({
-      maxNumHands: 1,
+      maxNumHands: 2,
       modelComplexity: 1,
       minDetectionConfidence: 0.7,
       minTrackingConfidence: 0.7
@@ -157,63 +159,91 @@ export function HandGestureController({ enabled, onGestureChange }: HandGestureC
 
       // Process hand landmarks
       if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        const landmarks = results.multiHandLandmarks[0];
 
-        // Draw hand skeleton
-        drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
-          color: '#00A896',
-          lineWidth: 3
+        // Draw hand skeleton for all detected hands
+        results.multiHandLandmarks.forEach(landmarks => {
+          drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
+            color: '#00A896',
+            lineWidth: 3
+          });
+          drawLandmarks(canvasCtx, landmarks, {
+            color: '#00FFE0',
+            lineWidth: 1,
+            radius: 4
+          });
         });
-        drawLandmarks(canvasCtx, landmarks, {
-          color: '#00FFE0',
-          lineWidth: 1,
-          radius: 4
-        });
 
-        // Detect gestures and update controls
-        const gesture = detectGesture(landmarks);
-        setCurrentGesture(gesture.name);
+        // Identify hands (Camera is mirrored, so 'Right' might mean 'Left')
+        let camHand: any = null; // Controls camera (typically Left)
+        let toolHand: any = null; // Controls pointer (typically Right)
 
-        // Update mode based on gesture
-        if (gesture.mode !== gestureMode) {
-          setGestureMode(gesture.mode);
+        if (results.multiHandLandmarks.length === 1) {
+          // Single hand default to camera for previous behavior
+          camHand = results.multiHandLandmarks[0];
+        } else if (results.multiHandLandmarks.length === 2) {
+          results.multiHandedness.forEach((handedness: any, idx) => {
+            if (handedness.label === 'Right') {
+              // Because the view is mirrored, original 'Right' label applies to user's physical Left hand.
+              camHand = results.multiHandLandmarks[idx];
+            } else {
+              toolHand = results.multiHandLandmarks[idx];
+            }
+          });
         }
 
-        // Calculate rotation from hand position movement
-        const palmCenter = landmarks[9]; // Middle finger base (palm center approximation)
+        // --- 1. TOOL HAND (Pointer) ---
+        if (toolHand) {
+          const gesture = detectGesture(toolHand);
+          const indexTip = toolHand[8];
 
-        if (lastHandPosRef.current) {
-          // Calculate movement delta
-          const deltaX = (palmCenter.x - lastHandPosRef.current.x);
-          const deltaY = (palmCenter.y - lastHandPosRef.current.y);
+          // Convert localized coords (0 to 1) to standard clip space (-1 to 1) for raycaster
+          // Since camera is mirrored horizontally (flip x), we invert x standard calculation: 
+          const x = -((indexTip.x * 2) - 1);
+          const y = -((indexTip.y * 2) - 1);
 
-          // Add deadzone to prevent jitter
-          if (Math.abs(deltaX) > 0.002 || Math.abs(deltaY) > 0.002) {
-            // Only apply rotation if there's actual movement and gesture supports it
-            if (gesture.name.includes('Rotate') || gesture.name.includes('Pointing')) {
-              rotationRef.current.y += deltaX * 4; // Reduced sensitivity from 10 to 4
-              rotationRef.current.x -= deltaY * 4; // Reduced sensitivity
+          const isPinching = gesture.name.includes('Pinch');
+          const isPointing = gesture.name.includes('Pointing');
+
+          pointerRef.current = { x, y, isPinching, isPointing };
+        } else {
+          pointerRef.current = null;
+        }
+
+        // --- 2. CAMERA HAND (Rotate/Zoom) ---
+        if (camHand) {
+          const gesture = detectGesture(camHand);
+          setCurrentGesture(results.multiHandLandmarks.length === 2 ? `Dual: ${gesture.name.split(' - ')[0]}` : gesture.name);
+
+          // Update mode based on gesture
+          if (gesture.mode !== gestureMode) {
+            setGestureMode(gesture.mode);
+          }
+
+          const palmCenter = camHand[9]; // Middle finger base (palm center approximation)
+
+          if (lastHandPosRef.current) {
+            // Flipped X axis calculation because of mirror
+            const deltaX = (palmCenter.x - lastHandPosRef.current.x);
+            const deltaY = (palmCenter.y - lastHandPosRef.current.y);
+
+            if (Math.abs(deltaX) > 0.002 || Math.abs(deltaY) > 0.002) {
+              if (gesture.name.includes('Rotate') || gesture.name.includes('Pointing')) {
+                rotationRef.current.y -= deltaX * 4; // Invert deltaX due to flip
+                rotationRef.current.x -= deltaY * 4;
+              }
             }
           }
-        }
+          lastHandPosRef.current = { x: palmCenter.x, y: palmCenter.y };
 
-        lastHandPosRef.current = { x: palmCenter.x, y: palmCenter.y };
-
-        // Update zoom based on pinch distance
-        if (gesture.name.includes('Pinch')) {
-          const thumbTip = landmarks[4];
-          const indexTip = landmarks[8];
-          const distance = Math.sqrt(
-            Math.pow(thumbTip.x - indexTip.x, 2) +
-            Math.pow(thumbTip.y - indexTip.y, 2)
-          );
-          // Map distance to zoom: close = zoom in, far = zoom out
-          // Smoother lerp for zoom
-          const targetZoom = Math.max(0.3, Math.min(2.5, 1 / (distance * 15)));
-          zoomRef.current = zoomRef.current * 0.8 + targetZoom * 0.2;
-        } else {
-          // Gradually return to normal zoom when not pinching
-          zoomRef.current = zoomRef.current * 0.95 + 1.0 * 0.05;
+          if (gesture.name.includes('Pinch')) {
+            const thumbTip = camHand[4];
+            const indexTip = camHand[8];
+            const distance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+            const targetZoom = Math.max(0.3, Math.min(2.5, 1 / (distance * 15)));
+            zoomRef.current = zoomRef.current * 0.8 + targetZoom * 0.2;
+          } else {
+            zoomRef.current = zoomRef.current * 0.95 + 1.0 * 0.05;
+          }
         }
 
         // Send controls to parent on every frame for smooth updates
@@ -221,11 +251,13 @@ export function HandGestureController({ enabled, onGestureChange }: HandGestureC
           rotationX: rotationRef.current.x,
           rotationY: rotationRef.current.y,
           zoom: zoomRef.current,
-          mode: gesture.mode
+          mode: gestureMode,
+          pointer: pointerRef.current
         });
       } else {
         setCurrentGesture('Show your hand');
         lastHandPosRef.current = null;
+        pointerRef.current = null;
       }
 
       canvasCtx.restore();

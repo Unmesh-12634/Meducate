@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Try to load from .env if not in process.env
-const envPath = path.resolve(__dirname, '.env');
+const envPath = path.resolve(__dirname, '.env');    
 if (fs.existsSync(envPath)) {
     const envContent = fs.readFileSync(envPath, 'utf8');
     const match = envContent.match(/VITE_GOOGLE_AI_API_KEY=(.*)/);

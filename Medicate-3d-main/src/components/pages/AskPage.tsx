@@ -400,7 +400,7 @@ export function AskPage({ language = 'en' }: { language?: Language }) {
                           value={input}
                           onChange={(e) => setInput(e.target.value)}
                           onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                          placeholder={t.placeholder}
+                          placeholder={t('ask.placeholder')}
                           whileFocus={{ scale: 1.01 }}
                           className="w-full px-6 py-4 rounded-2xl bg-background border-2 border-border focus:outline-none focus:border-[#00A896] transition-all shadow-sm text-base"
                         />
@@ -412,7 +412,7 @@ export function AskPage({ language = 'en' }: { language?: Language }) {
                               exit={{ scale: 0, opacity: 0 }}
                               className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground bg-muted px-2 py-1 rounded"
                             >
-                              {t.pressEnter}
+                              {t('ask.pressEnter')}
                             </motion.div>
                           )}
                         </AnimatePresence>
@@ -588,7 +588,7 @@ export function AskPage({ language = 'en' }: { language?: Language }) {
                   />
                 )}
                 <div className="relative z-10"><MessageCircle size={20} /></div>
-                <span className="relative z-10 font-medium">{t.medibot}</span>
+                <span className="relative z-10 font-medium">{t('ask.medibot')}</span>
               </motion.button>
 
               <motion.button
@@ -608,7 +608,7 @@ export function AskPage({ language = 'en' }: { language?: Language }) {
                   />
                 )}
                 <div className="relative z-10"><BookOpen size={20} /></div>
-                <span className="relative z-10 font-medium">{t.askProfessor}</span>
+                <span className="relative z-10 font-medium">{t('ask.askProfessor')}</span>
               </motion.button>
             </div>
 
@@ -623,7 +623,7 @@ export function AskPage({ language = 'en' }: { language?: Language }) {
                 >
                   <div className="flex items-center gap-2 mb-4">
                     <Sparkles size={18} className="text-[#FFD166]" />
-                    <h3 className="text-sm">{t.quickTopics}</h3>
+                    <h3 className="text-sm">{t('ask.quickTopics')}</h3>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     {quickSuggestions.map((suggestion, index) => (

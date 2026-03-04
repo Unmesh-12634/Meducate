@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
     Shield, Camera, CameraOff, AlertTriangle, CheckCircle2,
-    Clock, X, Eye, Wifi, User, Monitor,
+    Clock, X, Eye, Wifi, User, Monitor, Loader2
 } from 'lucide-react';
 
 // ─── MCQ Data ─────────────────────────────────────────────────────────────────
@@ -68,14 +68,16 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
     const [currentQ, setCurrentQ] = useState(0);
     const [answers, setAnswers] = useState<Record<number, number>>({});
     const [timeLeft, setTimeLeft] = useState(EXAM_DURATION);
+    const [fsViolationSeconds, setFsViolationSeconds] = useState<number | null>(null);
     const [strikes, setStrikes] = useState(0);
+    const [reviewFlags, setReviewFlags] = useState<Set<number>>(new Set());
     const [warnings, setWarnings] = useState<WarningItem[]>([]);
     const [activeWarning, setActiveWarning] = useState<WarningItem | null>(null);
     const [cameraOk, setCameraOk] = useState(false);
     const [cameraError, setCameraError] = useState(false);
     const [cameraGranted, setCameraGranted] = useState(false);
-    const [isFullscreen, setIsFullscreen] = useState(false);
     const [currentTime, setCurrentTime] = useState(new Date());
+    const [isStarting, setIsStarting] = useState(false);
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -120,6 +122,7 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
 
     // ── Camera ────────────────────────────────────────────────────────────────
     const startCamera = useCallback(async () => {
+        setIsStarting(true);
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
             streamRef.current = stream;
@@ -129,6 +132,8 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
         } catch {
             setCameraError(true);
             setCameraGranted(true);
+        } finally {
+            setIsStarting(false);
         }
     }, []);
 
@@ -149,13 +154,11 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
     const enterFullscreen = useCallback(async () => {
         try {
             await document.documentElement.requestFullscreen();
-            setIsFullscreen(true);
         } catch { /* browser may block */ }
     }, []);
 
     const exitFullscreenClean = useCallback(async () => {
         try { if (document.fullscreenElement) await document.exitFullscreen(); } catch { /* */ }
-        setIsFullscreen(false);
     }, []);
 
     // ── Transition consent → exam ─────────────────────────────────────────────
@@ -174,6 +177,15 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
         timerRef.current = setInterval(() => {
             setTimeLeft(prev => {
                 if (prev <= 1) { doSubmit(); return 0; }
+                return prev - 1;
+            });
+
+            setFsViolationSeconds(prev => {
+                if (prev === null) return null;
+                if (prev <= 1) {
+                    doSubmit();
+                    return null;
+                }
                 return prev - 1;
             });
         }, 1000);
@@ -195,14 +207,23 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
         };
         document.addEventListener('visibilitychange', onVisible);
 
-        // Fullscreen change → warn + re-enter
+        // Fullscreen change → warn + 30sec countdown
         const onFsChange = () => {
             if (!document.fullscreenElement) {
-                setIsFullscreen(false);
-                enqueueWarning('fullscreen', 'Fullscreen Exited', 'Returning to fullscreen mode. Do not exit fullscreen during the exam.');
-                setTimeout(() => enterFullscreen(), 800);
+                enqueueWarning('fullscreen', 'Fullscreen Exited', '30 Seconds to return to fullscreen before automatic exam termination.');
+                setFsViolationSeconds(30);
+
+                // Track as a strike immediately. If they aren't out by max strikes, give a warning. 
+                setStrikes(s => {
+                    const next = s + 1;
+                    if (next >= MAX_STRIKES) {
+                        enqueueWarning('fullscreen', 'EXAM TERMINATED', `You have been flagged ${MAX_STRIKES} times. Exam auto-submitted.`);
+                        setTimeout(() => doSubmit(), 2000);
+                    }
+                    return next;
+                });
             } else {
-                setIsFullscreen(true);
+                setFsViolationSeconds(null);
             }
         };
         document.addEventListener('fullscreenchange', onFsChange);
@@ -261,7 +282,7 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
             className="fixed inset-0 z-[9999] flex flex-col"
             style={{
                 userSelect: 'none',
-                background: 'radial-gradient(ellipse at top, #0d1117 0%, #060810 100%)',
+                background: 'radial-gradient(circle at top, #0a0a0a 0%, #000000 100%)',
             }}
         >
             {/* ─── CONSENT SCREEN ───────────────────────────────────────────────── */}
@@ -272,13 +293,9 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         className="absolute inset-0 z-10 flex items-center justify-center p-6"
-                        style={{ background: 'radial-gradient(ellipse at top, #0d1117 0%, #060810 100%)' }}
+                        style={{ background: 'radial-gradient(circle at top, #0a0a0a 0%, #000000 100%)' }}
                     >
-                        {/* Subtle grid pattern */}
-                        <div className="absolute inset-0 opacity-5" style={{
-                            backgroundImage: 'linear-gradient(rgba(0,168,150,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(0,168,150,0.3) 1px, transparent 1px)',
-                            backgroundSize: '50px 50px',
-                        }} />
+                        {/* Subtle grid pattern removed */}
 
                         <motion.div
                             initial={{ scale: 0.9, opacity: 0, y: 30 }}
@@ -287,92 +304,115 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
                             className="relative w-full max-w-2xl"
                         >
                             {/* Glow effect */}
-                            <div className="absolute -inset-px rounded-3xl bg-gradient-to-b from-red-500/20 to-transparent pointer-events-none" />
+                            <div className="absolute -inset-px rounded-3xl bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
 
-                            <div className="relative bg-[#0d1117]/90 backdrop-blur border border-slate-800 rounded-3xl overflow-hidden">
+                            <div className="relative bg-black/60 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
                                 {/* Top accent */}
                                 <div className="h-1 bg-gradient-to-r from-[#EF476F] via-[#EF476F] to-transparent" />
 
-                                <div className="p-8">
+                                <div className="p-8 px-10">
                                     {/* Header */}
-                                    <div className="flex items-start gap-5 mb-8">
-                                        <div className="relative flex-shrink-0">
-                                            <div className="w-16 h-16 rounded-2xl bg-[#EF476F]/10 border border-[#EF476F]/30 flex items-center justify-center">
-                                                <Shield size={30} className="text-[#EF476F]" />
+                                    <div className="flex items-start gap-6 mb-8">
+                                        {/* Icon container */}
+                                        <div className="relative flex-shrink-0 mt-1">
+                                            <div className="w-[72px] h-[72px] rounded-[24px] bg-[#1a0f14] border border-[#ef476f] flex items-center justify-center shadow-[0_0_20px_rgba(239,71,111,0.15)] relative overflow-hidden">
+                                                <div className="absolute inset-0 bg-gradient-to-b from-[#ef476f]/10 to-transparent" />
+                                                <Shield size={32} className="text-[#ef476f] z-10" />
                                             </div>
-                                            <div className="absolute -top-1 -right-1 w-5 h-5 bg-[#EF476F] rounded-full flex items-center justify-center">
-                                                <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                                            {/* Status dot */}
+                                            <div className="absolute -bottom-1 -left-1 w-6 h-6 bg-[#ef476f] rounded-full flex items-center justify-center border-4 border-black shadow-[0_0_10px_rgba(239,71,111,0.5)]">
+                                                <div className="w-2 h-2 bg-white rounded-full" />
                                             </div>
                                         </div>
+
                                         <div className="flex-1">
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <span className="px-2.5 py-0.5 bg-[#EF476F]/15 border border-[#EF476F]/40 text-[#EF476F] text-[10px] font-black rounded tracking-[0.2em] uppercase">
+                                            {/* Labels row */}
+                                            <div className="flex items-center gap-2 mb-3">
+                                                <span className="text-[#ef476f] text-xs font-semibold tracking-wider uppercase bg-[#1a0f14] px-2 py-0.5 rounded">
                                                     Proctored Exam
                                                 </span>
-                                                <span className="px-2.5 py-0.5 bg-slate-800 text-slate-400 text-[10px] rounded tracking-wider uppercase">
+                                                <span className="text-white text-xs font-semibold tracking-wider uppercase">
                                                     Secure Environment
                                                 </span>
                                             </div>
-                                            <h1 className="text-2xl font-black text-white leading-tight">{weekTitle} Assessment</h1>
-                                            <p className="text-sm text-slate-500 mt-1">{courseTitle}</p>
+                                            {/* Titles */}
+                                            <h1 className="text-4xl font-semibold text-white tracking-tight mb-2">
+                                                {weekTitle} Assessment
+                                            </h1>
+                                            <p className="text-lg text-slate-300">
+                                                {courseTitle}
+                                            </p>
                                         </div>
                                     </div>
 
                                     {/* Stats row */}
-                                    <div className="grid grid-cols-3 gap-3 mb-6">
+                                    <div className="grid grid-cols-3 gap-4 mb-8">
                                         {[
-                                            { icon: <Clock size={14} />, label: 'Duration', value: '20 Minutes' },
-                                            { icon: <CheckCircle2 size={14} />, label: 'Questions', value: `${totalQ} MCQ` },
-                                            { icon: <Eye size={14} />, label: 'Violations', value: `${MAX_STRIKES} Max` },
+                                            { icon: <Clock size={16} />, label: 'Duration', value: '20 Minutes' },
+                                            { icon: <CheckCircle2 size={16} />, label: 'Questions', value: `${totalQ} MCQ` },
+                                            { icon: <Eye size={16} />, label: 'Violations', value: `${MAX_STRIKES} Max` },
                                         ].map(({ icon, label, value }) => (
-                                            <div key={label} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
-                                                <div className="flex items-center justify-center gap-1 text-slate-500 mb-1">{icon}<span className="text-[10px] uppercase tracking-wider">{label}</span></div>
-                                                <p className="text-white font-bold text-sm">{value}</p>
+                                            <div key={label} className="bg-black border border-white/10 rounded-2xl p-4 text-center">
+                                                <div className="flex items-center justify-center gap-2 mb-2">
+                                                    <span className="text-slate-400">{icon}</span>
+                                                    <span className="text-xs text-slate-400 font-medium tracking-[0.15em] uppercase">{label}</span>
+                                                </div>
+                                                <p className="text-white font-bold text-lg">{value}</p>
                                             </div>
                                         ))}
                                     </div>
 
                                     {/* Rules */}
-                                    <div className="bg-slate-900/40 border border-slate-800/60 rounded-2xl p-5 mb-5 space-y-3">
+                                    <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-6 mb-6 space-y-5">
                                         {[
-                                            { color: '#EF476F', icon: <Monitor size={13} />, text: 'The exam runs in FULLSCREEN. Exiting triggers an automatic violation.' },
-                                            { color: '#00A896', icon: <Camera size={13} />, text: 'Your CAMERA is recorded for identity verification throughout the exam.' },
-                                            { color: '#FFD166', icon: <AlertTriangle size={13} />, text: 'Switching tabs or windows is detected and counts as a strike.' },
-                                            { color: '#EF476F', icon: <X size={13} />, text: 'Copy, paste, right-click, and keyboard shortcuts are disabled.' },
-                                            { color: '#00A896', icon: <Shield size={13} />, text: `${MAX_STRIKES} violations = automatic exam termination.` },
+                                            { color: '#EF476F', icon: <Monitor size={16} />, text: 'The exam runs in FULLSCREEN. Exiting triggers an automatic violation.' },
+                                            { color: '#00A896', icon: <Camera size={16} />, text: 'Your CAMERA is recorded for identity verification throughout the exam.' },
+                                            { color: '#FFD166', icon: <AlertTriangle size={16} />, text: 'Switching tabs or windows is detected and counts as a strike.' },
+                                            { color: '#EF476F', icon: <X size={16} />, text: 'Copy, paste, right-click, and keyboard shortcuts are disabled.' },
+                                            { color: '#00A896', icon: <Shield size={16} />, text: `${MAX_STRIKES} violations = automatic exam termination.` },
                                         ].map(({ color, icon, text }) => (
-                                            <div key={text} className="flex items-start gap-3">
-                                                <span className="mt-0.5 flex-shrink-0 p-1 rounded" style={{ color, background: `${color}18` }}>{icon}</span>
-                                                <p className="text-sm text-slate-300 leading-relaxed">{text}</p>
+                                            <div key={text} className="flex items-start gap-4">
+                                                <span className="mt-0.5 flex-shrink-0" style={{ color }}>{icon}</span>
+                                                <p className="text-base text-slate-200">{text}</p>
                                             </div>
                                         ))}
                                     </div>
 
                                     {/* Camera notice */}
-                                    <div className="flex items-center gap-3 border border-[#00A896]/30 bg-[#00A896]/8 rounded-xl px-4 py-3 mb-6">
-                                        <Camera size={16} className="text-[#00A896] flex-shrink-0" />
-                                        <p className="text-sm text-[#00A896]">
-                                            <strong>Camera required.</strong> Click <em>Allow</em> when your browser asks for permission to start.
+                                    <div className="flex items-center gap-3 border border-[#00A896]/30 bg-[#00A896]/10 rounded-full px-5 py-3 mb-8">
+                                        <Camera size={18} className="text-[#00A896] flex-shrink-0" />
+                                        <p className="text-[15px] text-[#00A896]">
+                                            <strong className="font-bold">Camera required.</strong> <span className="text-[#00A896]/80">Click</span> <em className="text-[#00A896]/80 px-1">Allow</em> <span className="text-[#00A896]/80">when your browser asks for permission to start.</span>
                                         </p>
                                     </div>
 
                                     {/* Buttons */}
-                                    <div className="flex gap-3">
+                                    <div className="flex gap-4">
                                         <button
                                             onClick={onClose}
-                                            className="flex-1 py-3 rounded-xl border border-slate-700/60 text-slate-400 hover:text-white hover:border-slate-600 hover:bg-slate-800/40 transition-all text-sm font-medium"
+                                            className="flex-1 py-4 rounded-full border border-white/10 text-white hover:bg-white/5 transition-all text-base font-semibold bg-black"
                                         >
                                             Cancel
                                         </button>
                                         <motion.button
                                             onClick={startCamera}
+                                            disabled={isStarting}
                                             whileHover={{ scale: 1.02 }}
-                                            whileTap={{ scale: 0.97 }}
-                                            className="flex-[2] py-3 rounded-xl text-white font-black text-sm flex items-center justify-center gap-2.5 shadow-2xl shadow-red-500/20"
-                                            style={{ background: 'linear-gradient(135deg, #EF476F 0%, #c73555 100%)' }}
+                                            whileTap={{ scale: 0.98 }}
+                                            className="flex-[1.5] py-4 rounded-full text-white text-base font-semibold shadow-xl shadow-[#EF476F]/20 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                            style={{ background: 'linear-gradient(to right, #EF476F, #F15B7F)' }}
                                         >
-                                            <Shield size={16} />
-                                            I Agree — Start Proctored Exam
+                                            {isStarting ? (
+                                                <div className="flex items-center gap-2">
+                                                    <Loader2 size={18} className="animate-spin" />
+                                                    Initializing...
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <Shield size={18} className="mr-1" />
+                                                    I Agree — Start Proctored Exam
+                                                </>
+                                            )}
                                         </motion.button>
                                     </div>
                                 </div>
@@ -387,8 +427,8 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
                 <div className="flex flex-col h-full">
 
                     {/* ── Top Bar ── */}
-                    <div className="flex-shrink-0 flex items-center justify-between px-6 py-3 border-b border-slate-800/70"
-                        style={{ background: 'rgba(6,8,16,0.95)', backdropFilter: 'blur(8px)' }}>
+                    <div className="flex-shrink-0 flex items-center justify-between px-6 py-3 border-b border-white/10"
+                        style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(24px)' }}>
 
                         {/* Left: Branding */}
                         <div className="flex items-center gap-3">
@@ -463,8 +503,8 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
                     <div className="flex-1 flex overflow-hidden">
 
                         {/* Left sidebar: Question navigator */}
-                        <div className="flex-shrink-0 w-56 border-r border-slate-800/50 flex flex-col p-4 gap-4"
-                            style={{ background: 'rgba(6,8,16,0.8)' }}>
+                        <div className="flex-shrink-0 w-56 border-r border-white/10 flex flex-col p-4 gap-4"
+                            style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(16px)' }}>
 
                             {/* Candidate info */}
                             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
@@ -477,9 +517,15 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
                                         <p className="text-xs font-semibold text-white">Med Student</p>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-1.5 text-[10px] text-slate-600">
+                                <div className="flex items-center gap-1.5 text-[10px] text-slate-600 mb-3">
                                     <Wifi size={10} />
                                     <span>Secure session active</span>
+                                </div>
+                                {/* Batch info */}
+                                <div className="pt-3 border-t border-white/5">
+                                    <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Course & Batch</p>
+                                    <p className="text-xs font-semibold text-white leading-tight">{courseTitle}</p>
+                                    <p className="text-[10px] text-[#00A896] mt-1 font-medium bg-[#00A896]/10 px-2 py-0.5 rounded-md inline-block">Batch 2026</p>
                                 </div>
                             </div>
 
@@ -490,11 +536,12 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
                                     {questions.map((_, i) => {
                                         const done = answers[i] !== undefined;
                                         const active = i === currentQ;
+                                        const flagged = reviewFlags.has(i);
                                         return (
                                             <button
                                                 key={i}
                                                 onClick={() => setCurrentQ(i)}
-                                                className={`h-9 rounded-lg text-xs font-bold transition-all ${active
+                                                className={`relative h-9 rounded-lg text-xs font-bold transition-all ${active
                                                     ? 'bg-[#00A896] text-white shadow-md shadow-[#00A896]/30 scale-110'
                                                     : done
                                                         ? 'bg-[#00A896]/20 border border-[#00A896]/40 text-[#00A896]'
@@ -502,6 +549,9 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
                                                     }`}
                                             >
                                                 {i + 1}
+                                                {flagged && (
+                                                    <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#FFD166] border border-black shadow-sm" />
+                                                )}
                                             </button>
                                         );
                                     })}
@@ -514,35 +564,87 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
                                     { color: 'bg-[#00A896]', label: 'Current' },
                                     { color: 'bg-[#00A896]/20 border border-[#00A896]/40', label: 'Answered' },
                                     { color: 'bg-slate-800/60 border border-slate-700/50', label: 'Not visited' },
-                                ].map(({ color, label }) => (
+                                    { color: 'bg-[#FFD166]', label: 'For Review', isBadge: true },
+                                ].map(({ color, label, isBadge }) => (
                                     <div key={label} className="flex items-center gap-2">
-                                        <div className={`w-5 h-5 rounded-md ${color}`} />
+                                        {isBadge ? (
+                                            <div className={`w-2.5 h-2.5 rounded-full border border-black shadow-sm ${color}`} />
+                                        ) : (
+                                            <div className={`w-5 h-5 rounded-md ${color}`} />
+                                        )}
                                         <span className="text-[10px] text-slate-600">{label}</span>
                                     </div>
                                 ))}
                             </div>
 
-                            {/* Answered progress */}
-                            <div className="mt-auto">
-                                <div className="flex items-center justify-between text-[10px] text-slate-600 mb-1.5">
-                                    <span>Answered</span>
-                                    <span className="font-bold text-white">{answered}/{totalQ}</span>
+                            {/* Answered progress & Stats */}
+                            <div className="mt-auto space-y-3">
+                                <div className="grid grid-cols-2 gap-2 mb-2 border-b border-white/5 pb-3">
+                                    <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-800">
+                                        <p className="text-[10px] text-slate-500">Attempted</p>
+                                        <p className="text-sm font-bold text-white">{answered}</p>
+                                    </div>
+                                    <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-800">
+                                        <p className="text-[10px] text-slate-500">Remaining</p>
+                                        <p className="text-sm font-bold text-white">{totalQ - answered}</p>
+                                    </div>
+                                    <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-800">
+                                        <p className="text-[10px] text-[#FFD166]/70">For Review</p>
+                                        <p className="text-sm font-bold text-[#FFD166]">{reviewFlags.size}</p>
+                                    </div>
+                                    <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-800">
+                                        <p className="text-[10px] text-slate-500">Total Qs</p>
+                                        <p className="text-sm font-bold text-white">{totalQ}</p>
+                                    </div>
                                 </div>
-                                <div className="h-1.5 bg-slate-800 rounded-full">
-                                    <div className="h-full bg-[#00A896] rounded-full transition-all" style={{ width: `${(answered / totalQ) * 100}%` }} />
+
+                                <div>
+                                    <div className="flex items-center justify-between text-[10px] text-slate-600 mb-1.5">
+                                        <span>Progress</span>
+                                        <span className="font-bold text-white">{answered}/{totalQ}</span>
+                                    </div>
+                                    <div className="h-1.5 bg-slate-800 rounded-full">
+                                        <div className="h-full bg-[#00A896] rounded-full transition-all" style={{ width: `${(answered / totalQ) * 100}%` }} />
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
                         {/* Center: Question */}
-                        <div className="flex-1 flex flex-col overflow-y-auto p-8" style={{ background: 'radial-gradient(ellipse at center, #0d1117 0%, #060810 100%)' }}>
-                            {/* Subtle grid */}
-                            <div className="absolute inset-0 opacity-[0.025] pointer-events-none" style={{
-                                backgroundImage: 'linear-gradient(rgba(0,168,150,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(0,168,150,0.5) 1px, transparent 1px)',
-                                backgroundSize: '40px 40px',
-                            }} />
+                        <div className="relative flex-1 flex flex-col overflow-y-auto p-8" style={{ background: 'radial-gradient(circle at center, #0a0a0a 0%, #000000 100%)' }}>
+                            {/* Subtle grid removed */}
 
-                            <div className="relative flex-1 flex flex-col justify-center max-w-2xl mx-auto w-full">
+                            {/* Fullscreen Violation Overlay */}
+                            <AnimatePresence>
+                                {fsViolationSeconds !== null && (
+                                    <motion.div
+                                        initial={{ opacity: 0, backdropFilter: 'blur(0px)' }}
+                                        animate={{ opacity: 1, backdropFilter: 'blur(32px)' }}
+                                        exit={{ opacity: 0, backdropFilter: 'blur(0px)' }}
+                                        className="absolute inset-0 z-50 bg-black/80 flex items-center justify-center p-8"
+                                    >
+                                        <div className="bg-red-950/40 border-2 border-red-500/50 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl shadow-red-500/20">
+                                            <AlertTriangle size={48} className="text-red-500 mx-auto mb-4 animate-pulse" />
+                                            <h2 className="text-2xl font-black text-white mb-2">Fullscreen Violation</h2>
+                                            <p className="text-red-200 mb-6 text-sm">
+                                                You have exited fullscreen mode. This is a severe violation.
+                                                Return to fullscreen immediately or your exam will be automatically submitted.
+                                            </p>
+                                            <div className="text-5xl font-mono font-black text-red-500 mb-8 tracking-wider">
+                                                00:{String(fsViolationSeconds).padStart(2, '0')}
+                                            </div>
+                                            <button
+                                                onClick={enterFullscreen}
+                                                className="w-full py-4 rounded-xl text-white font-black text-sm bg-red-600 hover:bg-red-500 transition-colors shadow-lg shadow-red-500/30"
+                                            >
+                                                Return to Fullscreen
+                                            </button>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+
+                            <div className={`relative flex-1 flex flex-col justify-center max-w-2xl mx-auto w-full transition-opacity duration-300 ${fsViolationSeconds !== null ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
                                 {/* Question card */}
                                 <AnimatePresence mode="wait">
                                     <motion.div
@@ -557,12 +659,28 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
                                             <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
                                                 Question {currentQ + 1} of {totalQ}
                                             </span>
-                                            <span className={`text-xs font-bold px-2 py-1 rounded-lg ${answers[currentQ] !== undefined
-                                                ? 'bg-[#00A896]/15 text-[#00A896]'
-                                                : 'bg-slate-800 text-slate-500'
-                                                }`}>
-                                                {answers[currentQ] !== undefined ? 'Answered' : 'Not answered'}
-                                            </span>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => {
+                                                        const fresh = new Set(reviewFlags);
+                                                        if (fresh.has(currentQ)) fresh.delete(currentQ);
+                                                        else fresh.add(currentQ);
+                                                        setReviewFlags(fresh);
+                                                    }}
+                                                    className={`text-xs font-bold px-3 py-1 rounded-lg border transition-all ${reviewFlags.has(currentQ)
+                                                        ? 'bg-[#FFD166]/10 text-[#FFD166] border-[#FFD166]/30'
+                                                        : 'bg-slate-800/40 text-slate-400 border-slate-700 hover:bg-slate-800 hover:text-white hover:border-slate-600'
+                                                        }`}
+                                                >
+                                                    {reviewFlags.has(currentQ) ? '★ Marked' : '☆ Mark for Review'}
+                                                </button>
+                                                <span className={`text-xs font-bold px-2 py-1 rounded-lg ${answers[currentQ] !== undefined
+                                                    ? 'bg-[#00A896]/15 text-[#00A896]'
+                                                    : 'bg-slate-800 text-slate-500'
+                                                    }`}>
+                                                    {answers[currentQ] !== undefined ? 'Answered' : 'Not answered'}
+                                                </span>
+                                            </div>
                                         </div>
 
                                         {/* Question text */}
@@ -639,8 +757,8 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
                         </div>
 
                         {/* Right sidebar: Camera feed */}
-                        <div className="flex-shrink-0 w-56 border-l border-slate-800/50 flex flex-col p-4 gap-4"
-                            style={{ background: 'rgba(6,8,16,0.8)' }}>
+                        <div className="flex-shrink-0 w-56 border-l border-white/10 flex flex-col p-4 gap-4"
+                            style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(16px)' }}>
 
                             <p className="text-[10px] text-slate-600 uppercase tracking-widest">Identity Verification</p>
 
@@ -793,7 +911,7 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
                             initial={{ scale: 0.88, y: 20 }}
                             animate={{ scale: 1, y: 0 }}
                             transition={{ type: 'spring', stiffness: 300, damping: 24 }}
-                            className="w-full max-w-md bg-[#0d1117] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl"
+                            className="w-full max-w-md bg-black/80 backdrop-blur-2xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl"
                         >
                             <div className="h-0.5 bg-yellow-400" />
                             <div className="p-8 text-center">
@@ -831,13 +949,9 @@ export function ProctorExam({ weekId, weekTitle, courseTitle, onClose, onComplet
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     className="absolute inset-0 z-10 flex items-center justify-center p-6 overflow-y-auto"
-                    style={{ background: 'radial-gradient(ellipse at top, #0d1117 0%, #060810 100%)' }}
+                    style={{ background: 'radial-gradient(circle at top, #0a0a0a 0%, #000000 100%)' }}
                 >
-                    {/* Grid */}
-                    <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{
-                        backgroundImage: 'linear-gradient(rgba(0,168,150,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(0,168,150,0.5) 1px, transparent 1px)',
-                        backgroundSize: '40px 40px',
-                    }} />
+                    {/* Grid removed */}
 
                     <motion.div
                         initial={{ scale: 0.92, opacity: 0 }}

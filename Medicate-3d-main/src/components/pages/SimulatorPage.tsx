@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, ChevronLeft, ChevronRight, Layers, Eye, Activity, Play, Hand, Mic, Bot, BookOpen } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Layers, Eye, Activity, Play, Hand, Mic, Bot, BookOpen, Building2, Stethoscope } from 'lucide-react';
 import { Viewer, type GestureControls } from '../3d/Viewer';
 import { HandGestureController } from '../3d/HandGestureController';
 import { VoiceCommandController } from '../3d/VoiceCommandController';
@@ -9,6 +9,7 @@ import { GestureGuidePanel } from '../3d/GestureGuidePanel';
 import { OrganExplainerCard } from '../3d/OrganExplainerCard';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { QuizCard } from '../ui/QuizCard';
+import { TriageSimulator } from './TriageSimulator';
 
 export function SimulatorPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -21,11 +22,18 @@ export function SimulatorPage() {
   const [gestureEnabled, setGestureEnabled] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [aiAssistantOpen, setAiAssistantOpen] = useState(false);
+  const [aiAssistantTrigger, setAiAssistantTrigger] = useState<string | null>(null);
   const [gestureControls, setGestureControls] = useState<GestureControls | null>(null);
   const [lastVoiceCommand, setLastVoiceCommand] = useState<any>(null);
   const [gestureGuideOpen, setGestureGuideOpen] = useState(false);
   const currentGesture = gestureEnabled ? (gestureControls ? 'Gesture Active' : 'Show your hand') : '';
   const [explainerOpen, setExplainerOpen] = useState(false);
+  // ── NEW: Lab mode tabs ────────────────────────────────────────────────────
+  const [labMode, setLabMode] = useState<'anatomy' | 'triage'>('anatomy');
+  // OR Theater environment toggle
+  const [orTheaterMode, setOrTheaterMode] = useState(true);
+  // Anatomy layer system
+  const [anatomyLayer, setAnatomyLayer] = useState<'skin' | 'muscle' | 'skeleton' | 'organs'>('skin');
 
   const organs = [
     { id: 'full_body', name: 'Full Anatomy', category: 'General' },
@@ -99,6 +107,36 @@ export function SimulatorPage() {
     correctAnswer: 1,
   };
 
+  const handleSelectObject = (name: string) => {
+    setAiAssistantOpen(true);
+    setAiAssistantTrigger(`Explain the anatomy and function of the ${name}. Keep it very brief, under 2 sentences, as if you are a surgical assistant providing quick context during a dissection.`);
+
+    // Speak it immediately
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(`Target acquired: ${name}`);
+    utterance.rate = 1.0;
+    utterance.pitch = 0.9;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // ── If Triage tab is active, render Triage Simulator full-screen ─────────
+  if (labMode === 'triage') {
+    return (
+      <div className="fixed inset-0 top-16 flex flex-col" style={{ background: '#000' }}>
+        {/* Mini tab bar */}
+        <div className="flex items-center gap-2 px-6 py-2 border-b border-white/5" style={{ background: 'rgba(0,5,10,0.95)' }}>
+          <button onClick={() => setLabMode('anatomy')} className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white">
+            <Layers size={14} /> Anatomy Lab
+          </button>
+          <button className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-[#EF476F]/10 text-[#EF476F] border border-[#EF476F]/30">
+            <Stethoscope size={14} /> Emergency Triage
+          </button>
+        </div>
+        <TriageSimulator />
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 top-16 flex">
       {/* Sidebar - Organ Library */}
@@ -112,6 +150,24 @@ export function SimulatorPage() {
           >
             <div className="p-6 border-b border-border bg-[#00A896]/5">
               <h3 className="mb-4 text-xl font-bold bg-gradient-to-r from-[#00A896] to-[#028090] bg-clip-text text-transparent">Organ Library</h3>
+              {/* Anatomy Layer Toggle */}
+              <div className="mb-4">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Anatomy Layer</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(['skin', 'muscle', 'skeleton', 'organs'] as const).map(layer => (
+                    <button
+                      key={layer}
+                      onClick={() => setAnatomyLayer(layer)}
+                      className={`py-1.5 px-2 rounded-lg text-[11px] font-bold capitalize transition-all border ${anatomyLayer === layer
+                        ? 'bg-[#00A896] text-white border-[#00A896]'
+                        : 'bg-background border-border/50 text-muted-foreground hover:border-[#00A896]/40 hover:text-[#00A896]'
+                        }`}
+                    >
+                      {layer === 'skin' ? '🫶' : layer === 'muscle' ? '💪' : layer === 'skeleton' ? '🦴' : '🫀'} {layer}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 transition-colors group-hover:text-[#00A896]" size={18} />
                 <input
@@ -180,16 +236,35 @@ export function SimulatorPage() {
       <div className="flex-1 flex flex-col relative"> {/* Added relative for overlays */}
         {/* Toolbar */}
         <div className="h-16 bg-card border-b border-border flex items-center justify-between px-6 z-30 relative">
-          <div className="flex items-center gap-4">
+          {/* Left: sidebar toggle + lab mode tabs */}
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="p-2 rounded-xl bg-muted hover:bg-muted/80"
             >
               {sidebarOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
             </button>
-            <h3>3D Simulation: {organInfo[selectedOrgan]?.name || 'Organ'}</h3>
+            {/* Lab mode tab switcher */}
+            <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-xl">
+              <button
+                onClick={() => setLabMode('anatomy')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${labMode === 'anatomy' ? 'bg-[#00A896] text-white' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+              >
+                <Layers size={13} /> Anatomy Lab
+              </button>
+              <button
+                onClick={() => setLabMode('triage')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${'triage' === (labMode as string) ? 'bg-[#EF476F] text-white' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+              >
+                <Stethoscope size={13} /> Triage Sim
+              </button>
+            </div>
           </div>
+          {/* Right: tools */}
           <div className="flex items-center gap-2">
+
             <button
               onClick={() => setVoiceEnabled(!voiceEnabled)}
               className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all ${voiceEnabled
@@ -233,6 +308,16 @@ export function SimulatorPage() {
               <Hand size={16} />
               {gestureEnabled ? 'Gesture' : 'Gesture'}
             </button>
+            {/* OR Theater toggle */}
+            <button
+              onClick={() => setOrTheaterMode(!orTheaterMode)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all ${orTheaterMode ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-muted hover:bg-muted/80'
+                }`}
+              title="Toggle OR Theater Environment"
+            >
+              <Building2 size={16} />
+              <span className="hidden sm:inline text-xs">OR Theater</span>
+            </button>
             <PrimaryButton onClick={() => setQuizMode(!quizMode)} icon={Play} className="text-sm px-4 py-2">
               Start Quiz
             </PrimaryButton>
@@ -249,6 +334,8 @@ export function SimulatorPage() {
             gestureEnabled={gestureEnabled}
             voiceEnabled={voiceEnabled}
             lastCommand={lastVoiceCommand}
+            onSelectObject={handleSelectObject}
+            orTheater={orTheaterMode}
           />
 
           {/* New Controllers */}
@@ -275,6 +362,8 @@ export function SimulatorPage() {
             isOpen={aiAssistantOpen}
             onClose={() => setAiAssistantOpen(false)}
             context={`${organInfo[selectedOrgan]?.name} - ${mode} Mode`}
+            triggerQuery={aiAssistantTrigger}
+            onQueryProcessed={() => setAiAssistantTrigger(null)}
           />
 
           {/* Hand Gesture Controller */}
@@ -445,6 +534,6 @@ export function SimulatorPage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </div >
   );
 }

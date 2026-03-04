@@ -2,12 +2,14 @@
 import { motion } from 'motion/react';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as THREE from 'three';
+import { useOREnvironment } from './OREnvironment';
 
 export interface GestureControls {
   rotationX: number;
   rotationY: number;
   zoom: number;
   mode: 'normal' | 'dissection' | 'pathology';
+  pointer?: { x: number; y: number; isPinching: boolean; isPointing: boolean } | null;
 }
 
 interface ViewerProps {
@@ -17,9 +19,9 @@ interface ViewerProps {
   gestureControls?: GestureControls | null;
   gestureEnabled?: boolean;
   voiceEnabled?: boolean;
-  lastCommand?: any;
-  manualZoom?: number;
-  manualRotation?: { x: number; y: number };
+  lastCommand?: any; // VoiceCommand type, kept loose to avoid circular dependency or duplicated type
+  onSelectObject?: (name: string) => void;
+  orTheater?: boolean; // NEW: enables OR theater environment
 }
 
 // Configuration for Models
@@ -46,8 +48,8 @@ export function Viewer({
   gestureEnabled = false,
   voiceEnabled = false,
   lastCommand = null,
-  manualZoom = 1,
-  manualRotation = { x: 0, y: 0 }
+  onSelectObject,
+  orTheater = false,
 }: ViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -65,14 +67,23 @@ export function Viewer({
   // Store original positions for Exploded View
   const originalPositionsRef = useRef<Map<string, THREE.Vector3>>(new Map());
 
+  // Dragging State for Forceps
+  const draggedObjectRef = useRef<THREE.Mesh | null>(null);
+  const dragPlaneRef = useRef<THREE.Plane>(new THREE.Plane());
+  const dragOffsetRef = useRef<THREE.Vector3>(new THREE.Vector3());
+  const isPinchingRef = useRef<boolean>(false);
 
+
+
+  // ── OR Theater Environment ──────────────────────────────────────────────────
+  useOREnvironment(sceneRef, orTheater);
 
   // State Refs (to avoid stale closures in event handlers)
-  const stateRef = useRef({ mode, selectedTool, gestureEnabled, gestureControls, selectedOrgan });
+  const stateRef = useRef({ mode, selectedTool, gestureEnabled, gestureControls, selectedOrgan, onSelectObject });
 
   useEffect(() => {
-    stateRef.current = { mode, selectedTool, gestureEnabled, gestureControls, selectedOrgan };
-  }, [mode, selectedTool, gestureEnabled, gestureControls, selectedOrgan]);
+    stateRef.current = { mode, selectedTool, gestureEnabled, gestureControls, selectedOrgan, onSelectObject };
+  }, [mode, selectedTool, gestureEnabled, gestureControls, selectedOrgan, onSelectObject]);
 
   // --- VOICE COMMAND HANDLER ---
   useEffect(() => {
@@ -200,6 +211,7 @@ export function Viewer({
       }
     };
 
+
     const performGrab = (object: THREE.Mesh) => {
       console.log("Grabbing:", object.name);
       const originalColor = (object.material as THREE.MeshStandardMaterial).color.getHex();
@@ -209,109 +221,45 @@ export function Viewer({
 
     const performRetract = (object: THREE.Mesh) => {
       console.log("Retracting:", object.name);
-      const originalPos = object.position.clone();
-      object.position.z -= 2;
-      setTimeout(() => { if (object) object.position.copy(originalPos); }, 800);
+      // Determine direction away from center (0,0,0) and push it out
+      const dir = object.position.clone().normalize();
+      if (dir.lengthSq() === 0) dir.set(0, 0, -1); // fallback
+
+      const targetPos = object.position.clone().add(dir.multiplyScalar(5));
+
+      // Simple animation
+      const startPos = object.position.clone();
+      let startTime = Date.now();
+      const duration = 300;
+
+      const animateRetract = () => {
+        const now = Date.now();
+        const progress = Math.min((now - startTime) / duration, 1);
+        // easeOutQuad
+        const ease = 1 - (1 - progress) * (1 - progress);
+        object.position.lerpVectors(startPos, targetPos, ease);
+
+        if (progress < 1) requestAnimationFrame(animateRetract);
+      };
+      animateRetract();
     };
-
-
-    const onMouseDown = (e: MouseEvent) => {
-      if (stateRef.current.gestureEnabled) return;
-
-      const rect = renderer.domElement.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      mouseRef.current.set(x, y);
-
-      raycasterRef.current.setFromCamera(mouseRef.current, camera);
-
-      // Interaction Logic
-      const intersects = raycasterRef.current.intersectObjects(gestureGroup.children, true);
-      if (intersects.length > 0) {
-        // Fix lint: explicitly type 'i'
-        const hit = intersects.find((i: THREE.Intersection) => i.object instanceof THREE.Mesh && i.object.visible);
-        if (hit) {
-          const object = hit.object as THREE.Mesh;
-          const { selectedTool, mode } = stateRef.current;
-
-          // FEATURE: Voice Anatomy Tutor (Normal Mode)
-          if (mode === 'normal') {
-            const name = object.name.replace(/_/g, ' ');
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(name);
-            utterance.rate = 1.0;
-            window.speechSynthesis.speak(utterance);
-
-            const originalColor = (object.material as THREE.MeshStandardMaterial).color.getHex();
-            (object.material as THREE.MeshStandardMaterial).color.setHex(0x00A896);
-            setTimeout(() => { if (object.material) (object.material as THREE.MeshStandardMaterial).color.setHex(originalColor); }, 500);
-            return;
-          }
-
-          // MODE RESTRICTION: Tools only in Dissection
-          if (mode === 'dissection') {
-            if (selectedTool === 'Scalpel') performCut(object, hit.point);
-            else if (selectedTool === 'Forceps') performGrab(object);
-            else if (selectedTool === 'Retractor') performRetract(object);
-          }
-        }
-      }
-    };
-    containerRef.current.addEventListener('mousedown', onMouseDown);
 
     // MOUSE MOVE / DRAG (Simple rotation fallback + DRAG TO CUT)
     let isDragging = false;
     let prevPos = { x: 0, y: 0 };
 
-    // Custom Scalpel Cursor (SVG Data URI)
-    const scalpelCursor = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"><path fill="%23FF0000" d="M19.34 2.66l-4.24 4.24-9.9 9.9-1.42 1.42 2.83 2.83 1.42-1.42 9.9-9.9 4.24-4.24c.78-.78.78-2.05 0-2.83s-2.05-.78-2.83 0z"/></svg>') 0 24, auto`;
-
+    const onMouseDownGlobal = () => isDragging = true;
+    const onMouseUpGlobal = () => isDragging = false;
     const onMouseMove = (e: MouseEvent) => {
-      // setMousePos({ x: e.clientX + 15, y: e.clientY + 15 }); // unused logic removed
-
-      const rect = renderer.domElement.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-      // CURSOR LOGIC
-      if (stateRef.current.mode === 'dissection' && stateRef.current.selectedTool === 'Scalpel') {
-        renderer.domElement.style.cursor = scalpelCursor;
-      } else if (stateRef.current.mode === 'normal') {
-        // Hover logic handles normal mode cursor
-      } else {
-        renderer.domElement.style.cursor = 'crosshair';
-      }
-
-      // HOVER / INSPECT LOGIC (Only if not dragging)
-      if (!stateRef.current.gestureEnabled && !isDragging && stateRef.current.mode === 'normal') {
-        raycasterRef.current.setFromCamera(new THREE.Vector2(x, y), camera);
-        const intersects = raycasterRef.current.intersectObjects(gestureGroup.children, true);
-        const hit = intersects.find((i: THREE.Intersection) => i.object instanceof THREE.Mesh && i.object.visible);
-        if (hit) {
-          // const name = hit.object.name.replace(/_/g, ' ').toUpperCase(); // unused
-          // setHoveredPart(name || "Structure"); // unused logic
-          renderer.domElement.style.cursor = 'help';
-        } else {
-          // setHoveredPart(null); // unused logic
-          renderer.domElement.style.cursor = 'default';
-        }
-      }
-
-      if (stateRef.current.gestureEnabled) return;
-
-      // MANUAL ROTATION (Allowed in ALL modes now)
-      if (isDragging && !stateRef.current.gestureEnabled) {
-        const deltaX = e.clientX - prevPos.x;
-        const deltaY = e.clientY - prevPos.y;
-        if (gestureGroupRef.current) {
-          gestureGroupRef.current.rotation.y += deltaX * 0.01;
-          gestureGroupRef.current.rotation.x += deltaY * 0.01;
-        }
+      if (!isDragging) return;
+      const deltaX = e.clientX - prevPos.x;
+      const deltaY = e.clientY - prevPos.y;
+      if (gestureGroupRef.current) {
+        gestureGroupRef.current.rotation.y += deltaX * 0.01;
+        gestureGroupRef.current.rotation.x += deltaY * 0.01;
       }
       prevPos = { x: e.clientX, y: e.clientY };
     };
-    const onMouseDownGlobal = () => isDragging = true;
-    const onMouseUpGlobal = () => isDragging = false;
 
     window.addEventListener('mousemove', onMouseMove);
     containerRef.current.addEventListener('mousedown', onMouseDownGlobal);
@@ -323,28 +271,111 @@ export function Viewer({
 
       const { gestureEnabled, gestureControls, mode, selectedOrgan } = stateRef.current;
 
-      // 1. Auto Rotate (Normal Mode only, no gestures, no manual override interaction)
-      // Disabled if manual rotation is non-zero to respect user view? 
-      // Actually, we'll let manual controls override auto-rotate.
-
-      const hasManualOverride = manualZoom !== 1 || manualRotation.x !== 0 || manualRotation.y !== 0;
-
-      if (!gestureEnabled && !isDragging && mode === 'normal' && gestureGroupRef.current && !hasManualOverride) {
+      // 1. Auto Rotate (Normal Mode only, no gestures)
+      if (!gestureEnabled && !isDragging && mode === 'normal' && gestureGroupRef.current) {
         gestureGroupRef.current.rotation.y -= 0.005; // Left rotation
       }
 
-      // 2. Control Priority: Hand > Manual > Auto
-      if (gestureGroupRef.current) {
-        if (gestureEnabled && gestureControls) {
-          gestureGroupRef.current.rotation.x = gestureControls.rotationX;
-          gestureGroupRef.current.rotation.y = gestureControls.rotationY;
-          const s = gestureControls.zoom;
-          gestureGroupRef.current.scale.set(s, s, s);
-        } else if (hasManualOverride) {
-          // Smooth lerp to manual target? For now direct set
-          gestureGroupRef.current.rotation.x = manualRotation.x;
-          gestureGroupRef.current.rotation.y = manualRotation.y;
-          gestureGroupRef.current.scale.set(manualZoom, manualZoom, manualZoom);
+      // 2. Gesture Control (High Priority)
+      if (gestureEnabled && gestureControls && gestureGroupRef.current) {
+        gestureGroupRef.current.rotation.x = gestureControls.rotationX;
+        gestureGroupRef.current.rotation.y = gestureControls.rotationY;
+        const s = gestureControls.zoom;
+        gestureGroupRef.current.scale.set(s, s, s);
+
+        // --- HAND POINTER RAYCASTING ---
+        if (gestureControls.pointer && cameraRef.current && gestureGroupRef.current) {
+          const { x, y, isPointing, isPinching } = gestureControls.pointer;
+          raycasterRef.current.setFromCamera(new THREE.Vector2(x, y), cameraRef.current);
+
+          const wasPinching = isPinchingRef.current;
+          isPinchingRef.current = isPinching;
+          const { selectedTool, mode } = stateRef.current;
+
+          // Dragging Logic (Forceps)
+          if (mode === 'dissection' && selectedTool === 'Forceps') {
+            if (isPinching && draggedObjectRef.current) {
+              // We are currently holding an object, move it
+              raycasterRef.current.ray.intersectPlane(dragPlaneRef.current, dragOffsetRef.current);
+              draggedObjectRef.current.position.copy(dragOffsetRef.current);
+
+              // Highlight to show it's grabbed
+              if (draggedObjectRef.current.material) {
+                (draggedObjectRef.current.material as THREE.MeshStandardMaterial).color.setHex(0xffff00);
+              }
+            } else if (!isPinching && draggedObjectRef.current) {
+              // We just let go
+              if (draggedObjectRef.current.material && draggedObjectRef.current.userData.originalColor) {
+                (draggedObjectRef.current.material as THREE.MeshStandardMaterial).color.setHex(draggedObjectRef.current.userData.originalColor);
+              }
+              draggedObjectRef.current = null;
+            }
+          } else {
+            // If we switched tools while dragging, drop it
+            if (draggedObjectRef.current) {
+              if (draggedObjectRef.current.material && draggedObjectRef.current.userData.originalColor) {
+                (draggedObjectRef.current.material as THREE.MeshStandardMaterial).color.setHex(draggedObjectRef.current.userData.originalColor);
+              }
+              draggedObjectRef.current = null;
+            }
+          }
+
+          // If we are NOT already holding something, see if we are pointing at something
+          if (!draggedObjectRef.current) {
+            const intersects = raycasterRef.current.intersectObjects(gestureGroupRef.current.children, true);
+            const hit = intersects.find((i: THREE.Intersection) => i.object instanceof THREE.Mesh && i.object.visible);
+
+            if (hit) {
+              const object = hit.object as THREE.Mesh;
+
+              // Hover effect
+              if (isPointing || isPinching) {
+                if (object.material && !object.userData.isHovered) {
+                  const originalColor = (object.material as THREE.MeshStandardMaterial).color.getHex();
+                  object.userData.originalColor = originalColor;
+                  object.userData.isHovered = true;
+                  (object.material as THREE.MeshStandardMaterial).color.setHex(0x00FFE0);
+                  setTimeout(() => {
+                    if (object.material) {
+                      (object.material as THREE.MeshStandardMaterial).color.setHex(object.userData.originalColor);
+                      object.userData.isHovered = false;
+                    }
+                  }, 150);
+                }
+              }
+
+              // Click effect (Pinch start)
+              if (isPinching && !wasPinching && !object.userData.isSelected) {
+                object.userData.isSelected = true;
+                const name = object.name.replace(/_/g, ' ');
+
+                if (mode === 'normal') {
+                  if (stateRef.current.onSelectObject) stateRef.current.onSelectObject(name);
+                } else if (mode === 'dissection') {
+                  if (selectedTool === 'Forceps') {
+                    // Start dragging
+                    draggedObjectRef.current = object;
+                    // Set up a plane facing the camera over the object's origin
+                    const objectWorldPos = new THREE.Vector3();
+                    object.getWorldPosition(objectWorldPos);
+                    const normal = cameraRef.current.getWorldDirection(new THREE.Vector3()).negate();
+                    dragPlaneRef.current.setFromNormalAndCoplanarPoint(normal, objectWorldPos);
+
+                    if (object.material && object.userData.originalColor) {
+                      (object.material as THREE.MeshStandardMaterial).color.setHex(0xffff00);
+                    }
+                  } else if (selectedTool === 'Scalpel') {
+                    performCut(object, hit.point);
+                    if (stateRef.current.onSelectObject) stateRef.current.onSelectObject("Scalpel cut made on " + name + ". Please explain what happens when this is cut or removed.");
+                  } else if (selectedTool === 'Retractor') {
+                    performRetract(object);
+                  }
+                }
+
+                setTimeout(() => { object.userData.isSelected = false; }, 1000); // Debounce
+              }
+            }
+          }
         }
       }
       // 3. Heartbeat Animation (Only in Normal Mode, Heart, No Gestures)
@@ -367,7 +398,6 @@ export function Viewer({
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener('resize', onResize);
-      if (containerRef.current) containerRef.current.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUpGlobal);
       if (containerRef.current) containerRef.current.removeEventListener('mousedown', onMouseDownGlobal);
@@ -414,60 +444,46 @@ export function Viewer({
       setIsLoading(false);
     } else {
       // Load GLB
-      // Check if we have a specific configuration for this organ
-      const config = MODELS[selectedOrgan];
+      const config = MODELS[selectedOrgan] || MODELS['heart']; // Fallback safely
+      const loader = new GLTFLoader();
 
-      if (config) {
-        const loader = new GLTFLoader();
+      loader.load(config.path, (gltf) => {
+        const model = gltf.scene;
+        model.scale.copy(config.scale);
+        model.position.copy(config.position);
+        model.rotation.copy(config.rotation);
 
-        loader.load(config.path, (gltf) => {
-          const model = gltf.scene;
-          model.scale.copy(config.scale);
-          model.position.copy(config.position);
-          model.rotation.copy(config.rotation);
+        // Center it
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        model.position.sub(center);
 
-          // Center it
-          const box = new THREE.Box3().setFromObject(model);
-          const center = box.getCenter(new THREE.Vector3());
-          model.position.sub(center);
-
-          // Traverse and store original positions for explode
-          model.traverse((child: THREE.Object3D) => {
-            if (child instanceof THREE.Mesh) {
-              originalPositionsRef.current.set(child.uuid, child.position.clone());
-              // Ensure we can see inside
-              if (child.material) {
-                if (Array.isArray(child.material)) {
-                  child.material.forEach((mat: THREE.Material) => {
-                    mat.side = THREE.DoubleSide;
-                    mat.transparent = true;
-                    mat.opacity = 1;
-                  });
-                } else {
-                  child.material.side = THREE.DoubleSide;
-                  child.material.transparent = true;
-                  child.material.opacity = 1;
-                }
+        // Traverse and store original positions for explode
+        model.traverse((child: THREE.Object3D) => {
+          if (child instanceof THREE.Mesh) {
+            originalPositionsRef.current.set(child.uuid, child.position.clone());
+            // Ensure we can see inside
+            if (child.material) {
+              // Handle array of materials
+              if (Array.isArray(child.material)) {
+                child.material.forEach((mat: THREE.Material) => {
+                  mat.side = THREE.DoubleSide;
+                  mat.needsUpdate = true;
+                });
+              } else {
+                child.material.side = THREE.DoubleSide;
+                child.material.needsUpdate = true;
               }
             }
-          });
-
-          gestureGroup.add(model);
-          setIsLoading(false);
-
-        }, undefined, (err) => {
-          console.warn("Failed to load model file, using placeholder:", selectedOrgan);
-          const placeholder = createPlaceholderOrgan(selectedOrgan);
-          gestureGroup.add(placeholder);
-          setIsLoading(false);
+          }
         });
-      } else {
-        // No GLB config found (e.g. Liver, Kidneys) -> Use Placeholder
-        console.log("No model config for", selectedOrgan, "- using placeholder");
-        const placeholder = createPlaceholderOrgan(selectedOrgan);
-        gestureGroup.add(placeholder);
+
+        gestureGroup.add(model);
         setIsLoading(false);
-      }
+      }, undefined, (err) => {
+        console.error("Failed to load model:", err);
+        setIsLoading(false);
+      });
     }
 
   }, [selectedOrgan]);
@@ -556,79 +572,9 @@ export function Viewer({
     return root;
   };
 
-  // --- Helper: Placeholder Generator ---
-  const createPlaceholderOrgan = (organId: string) => {
-    const group = new THREE.Group();
-
-    // Aesthetic placeholder shapes
-    let geo;
-    let color = 0x888888;
-
-    switch (organId) {
-      case 'kidneys':
-        geo = new THREE.CapsuleGeometry(2, 6, 4, 8);
-        color = 0x8B4513;
-        break;
-      case 'liver':
-        geo = new THREE.ConeGeometry(4, 7, 32);
-        color = 0xCD5C5C;
-        break;
-      case 'lungs':
-        geo = new THREE.SphereGeometry(4, 32, 32); // 2 lobes logic handled by group maybe?
-        color = 0xFFB6C1;
-        break;
-      case 'stomach':
-        geo = new THREE.TorusGeometry(3, 1.5, 16, 100, Math.PI * 1.5);
-        color = 0xFFC0CB;
-        break;
-      default:
-        geo = new THREE.IcosahedronGeometry(4, 1);
-        color = 0x00A896;
-    }
-
-    const mat = new THREE.MeshPhysicalMaterial({
-      color: color,
-      roughness: 0.3,
-      metalness: 0.1,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.1,
-      transparent: true,
-      opacity: 0.9
-    });
-
-    const mesh = new THREE.Mesh(geo, mat);
-
-    if (organId === 'lungs' || organId === 'kidneys') {
-      // Create pair
-      const left = mesh.clone();
-      left.position.x = -3;
-      const right = mesh.clone();
-      right.position.x = 3;
-      group.add(left);
-      group.add(right);
-    } else {
-      group.add(mesh);
-    }
-
-    // Add Wireframe for "Holographic" feel
-    const wireframe = new THREE.LineSegments(
-      new THREE.WireframeGeometry(geo),
-      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.1 })
-    );
-    if (organId === 'lungs' || organId === 'kidneys') {
-      const wLeft = wireframe.clone(); wLeft.position.x = -3;
-      const wRight = wireframe.clone(); wRight.position.x = 3;
-      group.add(wLeft);
-      group.add(wRight);
-    } else {
-      group.add(wireframe);
-    }
-
-    return group;
-  };
-
   return (
-    <div className="relative w-full h-full bg-black/5 dark:bg-black/20 rounded-2xl overflow-hidden cursor-crosshair">
+    <div className="relative w-full h-full rounded-2xl overflow-hidden cursor-crosshair"
+      style={{ background: orTheater ? '#000000' : undefined }}>
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
           <div className="flex flex-col items-center gap-4">
@@ -667,4 +613,12 @@ export function Viewer({
         )}
 
         {voiceEnabled && (
-          <div className="mt-1 flex items-cent
+          <div className="mt-1 flex items-center gap-1 text-[#00A896]">
+            <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
+            Listening...
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+}
