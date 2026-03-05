@@ -9,7 +9,17 @@ export interface GestureControls {
   rotationY: number;
   zoom: number;
   mode: 'normal' | 'dissection' | 'pathology';
-  pointer?: { x: number; y: number; isPinching: boolean; isPointing: boolean } | null;
+  activeTool: 'Scalpel' | 'Forceps' | 'Scissors' | 'Retractor' | 'Cautery' | 'None';
+  pointer?: {
+    x: number;
+    y: number;
+    isPinching: boolean;       // Forceps
+    isPointing: boolean;       // General UI / Trace
+    isPencilGrip: boolean;     // Scalpel
+    isSnipping: boolean;       // Scissors
+    isClawGrip: boolean;       // Retractor
+    isTriggerGrip: boolean;    // Cautery
+  } | null;
 }
 
 export interface NormalizedLandmark {
@@ -268,10 +278,20 @@ export function HandGestureController({
 
   const rotationRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const zoomRef = useRef<number>(1);
-  const pointerRef = useRef<{ x: number; y: number; isPinching: boolean; isPointing: boolean } | null>(null);
+  const pointerRef = useRef<{
+    x: number;
+    y: number;
+    isPinching: boolean;
+    isPointing: boolean;
+    isPencilGrip: boolean;
+    isSnipping: boolean;
+    isClawGrip: boolean;
+    isTriggerGrip: boolean;
+  } | null>(null);
   const lastHandPosRef = useRef<{ x: number; y: number } | null>(null);
   const initializingRef = useRef(false);
   const gestureModeRef = useRef<'normal' | 'dissection' | 'pathology'>('normal');
+  const activeToolRef = useRef<'Scalpel' | 'Forceps' | 'Scissors' | 'Retractor' | 'Cautery' | 'None'>('None');
 
   // Per-hand smoothed landmark buffers
   const smoothedLandmarksRef = useRef<NormalizedLandmark[][] | null>(null);
@@ -435,22 +455,42 @@ export function HandGestureController({
           }
         }
 
-        // ── Tool hand (pointer) ────────────────────────────────────────
+        // ── Tool (Right) hand (Action / Pointer) ────────────────────────
         if (toolHand) {
           const gesture = detectGesture(toolHand);
           const indexTip = toolHand[8];
           const x = -((indexTip.x * 2) - 1);
           const y = -((indexTip.y * 2) - 1);
+
+          // Authentic Grip Detection
+          const wrist = toolHand[0];
+          const dist = (a: NormalizedLandmark, b: NormalizedLandmark) => Math.hypot(a.x - b.x, a.y - b.y);
+
+          const thumbTip = toolHand[4];
+          const middleTip = toolHand[12];
+          const ringTip = toolHand[16];
+          const pinkyTip = toolHand[20];
+
+          const isPinching = dist(thumbTip, indexTip) < 0.06;
+          const isPencilGrip = dist(thumbTip, indexTip) < 0.08 && dist(thumbTip, middleTip) < 0.08 && dist(ringTip, wrist) < dist(toolHand[13], wrist) && dist(pinkyTip, wrist) < dist(toolHand[17], wrist);
+          const isSnipping = dist(thumbTip, wrist) < dist(toolHand[2], wrist) && dist(indexTip, wrist) > dist(toolHand[5], wrist) + 0.05 && dist(middleTip, wrist) > dist(toolHand[9], wrist) + 0.05 && dist(indexTip, middleTip) > 0.05; // Index and middle extended but apart
+          const isClawGrip = dist(indexTip, wrist) > dist(toolHand[5], wrist) && dist(indexTip, wrist) < dist(toolHand[5], wrist) + 0.1; // Fingers half curled
+          const isTriggerGrip = dist(indexTip, wrist) > dist(toolHand[5], wrist) + 0.05 && dist(middleTip, wrist) < dist(toolHand[9], wrist); // Only index extended
+
           pointerRef.current = {
             x, y,
-            isPinching: gesture.name.includes('Pinch'),
+            isPinching,
             isPointing: gesture.name.includes('Pointing'),
+            isPencilGrip,
+            isSnipping,
+            isClawGrip,
+            isTriggerGrip
           };
         } else {
           pointerRef.current = null;
         }
 
-        // ── Camera hand (rotate / zoom) ────────────────────────────────
+        // ── Camera (Left) hand (mode / tool selection / rotate / zoom) ────────────────
         if (camHand) {
           const gesture = detectGesture(camHand);
           setCurrentGesture(
@@ -462,6 +502,25 @@ export function HandGestureController({
           if (gesture.mode !== gestureModeRef.current) {
             setGestureMode(gesture.mode);
             gestureModeRef.current = gesture.mode;
+          }
+
+          // Tool Selection in Dissection Mode using Left Hand Fingers
+          if (gesture.mode === 'dissection') {
+            const wrist = camHand[0];
+            const dist = (a: NormalizedLandmark, b: NormalizedLandmark) => Math.hypot(a.x - b.x, a.y - b.y);
+            const extendedCount = [8, 12, 16, 20].filter(i =>
+              dist(camHand[i], wrist) > dist(camHand[i - 3], wrist) + 0.05
+            ).length;
+
+            if (extendedCount === 1) activeToolRef.current = 'Scalpel';
+            else if (extendedCount === 2) activeToolRef.current = 'Forceps';
+            else if (extendedCount === 3) activeToolRef.current = 'Scissors';
+            else if (extendedCount === 4 && dist(camHand[4], wrist) > dist(camHand[2], wrist) + 0.05) activeToolRef.current = 'Retractor';
+            else if (extendedCount === 0) activeToolRef.current = 'Cautery'; // Fist = Cautery in dissection mode context? Actually let's just keep fist for "Normal mode" according to previous logic.
+            // Adjust: 4 fingers (no thumb) = Cautery, 5 fingers (with thumb) = Retractor
+            if (extendedCount === 4 && dist(camHand[4], wrist) <= dist(camHand[2], wrist) + 0.05) activeToolRef.current = 'Cautery';
+          } else {
+            activeToolRef.current = 'None';
           }
 
           const palmCenter = camHand[9];
@@ -500,6 +559,7 @@ export function HandGestureController({
           rotationY: rotationRef.current.y,
           zoom: zoomRef.current,
           mode: gestureModeRef.current,
+          activeTool: activeToolRef.current,
           pointer: pointerRef.current,
         });
       } else {

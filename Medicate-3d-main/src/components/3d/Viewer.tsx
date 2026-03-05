@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as THREE from 'three';
 import { useOREnvironment } from './OREnvironment';
-import type { NormalizedLandmark } from './HandGestureController';
+import type { NormalizedLandmark, GestureControls } from './HandGestureController';
 
 // MediaPipe hand bone connections (21 landmarks)
 const HAND_CONNECTIONS: [number, number][] = [
@@ -15,14 +15,6 @@ const HAND_CONNECTIONS: [number, number][] = [
   [0, 5], [5, 9], [9, 13], [13, 17], [0, 17],
 ];
 
-export interface GestureControls {
-  rotationX: number;
-  rotationY: number;
-  zoom: number;
-  mode: 'normal' | 'dissection' | 'pathology';
-  pointer?: { x: number; y: number; isPinching: boolean; isPointing: boolean } | null;
-}
-
 interface ViewerProps {
   mode?: 'normal' | 'dissection' | 'pathology';
   selectedOrgan?: string;
@@ -31,7 +23,7 @@ interface ViewerProps {
   gestureEnabled?: boolean;
   voiceEnabled?: boolean;
   lastCommand?: any;
-  onSelectObject?: (name: string) => void;
+  onSelectObject?: (name: string, screenshot?: string) => void;
   orTheater?: boolean;
   /** Smoothed hand landmarks from HandGestureController for the overlay skeleton */
   handLandmarks?: NormalizedLandmark[][] | null;
@@ -341,16 +333,16 @@ export function Viewer({
 
         // --- HAND POINTER RAYCASTING ---
         if (gestureControls.pointer && cameraRef.current && gestureGroupRef.current) {
-          const { x, y, isPointing, isPinching } = gestureControls.pointer;
-          raycasterRef.current.setFromCamera(new THREE.Vector2(x, y), cameraRef.current);
+          const p = gestureControls.pointer;
+          raycasterRef.current.setFromCamera(new THREE.Vector2(p.x, p.y), cameraRef.current);
 
           const wasPinching = isPinchingRef.current;
-          isPinchingRef.current = isPinching;
+          isPinchingRef.current = p.isPinching;
           const { selectedTool, mode } = stateRef.current;
 
           // Dragging Logic (Forceps)
           if (mode === 'dissection' && selectedTool === 'Forceps') {
-            if (isPinching && draggedObjectRef.current) {
+            if (p.isPinching && draggedObjectRef.current) {
               // We are currently holding an object, move it
               raycasterRef.current.ray.intersectPlane(dragPlaneRef.current, dragOffsetRef.current);
               draggedObjectRef.current.position.copy(dragOffsetRef.current);
@@ -359,7 +351,7 @@ export function Viewer({
               if (draggedObjectRef.current.material) {
                 (draggedObjectRef.current.material as THREE.MeshStandardMaterial).color.setHex(0xffff00);
               }
-            } else if (!isPinching && draggedObjectRef.current) {
+            } else if (!p.isPinching && draggedObjectRef.current) {
               // We just let go
               if (draggedObjectRef.current.material && draggedObjectRef.current.userData.originalColor) {
                 (draggedObjectRef.current.material as THREE.MeshStandardMaterial).color.setHex(draggedObjectRef.current.userData.originalColor);
@@ -385,7 +377,7 @@ export function Viewer({
               const object = hit.object as THREE.Mesh;
 
               // Hover effect
-              if (isPointing || isPinching) {
+              if (p.isPointing || p.isPinching || p.isPencilGrip || p.isSnipping || p.isClawGrip || p.isTriggerGrip) {
                 if (object.material && !object.userData.isHovered) {
                   const originalColor = (object.material as THREE.MeshStandardMaterial).color.getHex();
                   object.userData.originalColor = originalColor;
@@ -400,35 +392,70 @@ export function Viewer({
                 }
               }
 
-              // Click effect (Pinch start)
-              if (isPinching && !wasPinching && !object.userData.isSelected) {
-                object.userData.isSelected = true;
-                const name = object.name.replace(/_/g, ' ');
+              // Tool-Specific Execution Logic
 
-                if (mode === 'normal') {
-                  if (stateRef.current.onSelectObject) stateRef.current.onSelectObject(name);
+              const captureScreenshot = () => {
+                if (rendererRef.current && sceneRef.current && cameraRef.current) {
+                  rendererRef.current.render(sceneRef.current, cameraRef.current);
+                  return rendererRef.current.domElement.toDataURL('image/png');
+                }
+                return undefined;
+              };
+
+              if (!object.userData.isSelected) {
+                if (mode === 'normal' && p.isPinching && !wasPinching) {
+                  object.userData.isSelected = true;
+                  const name = object.name.replace(/_/g, ' ');
+                  if (stateRef.current.onSelectObject) stateRef.current.onSelectObject(name, captureScreenshot());
                 } else if (mode === 'dissection') {
-                  if (selectedTool === 'Forceps') {
+                  const name = object.name.replace(/_/g, ' ');
+
+                  if (selectedTool === 'Forceps' && p.isPinching && !wasPinching) {
+                    object.userData.isSelected = true;
                     // Start dragging
                     draggedObjectRef.current = object;
-                    // Set up a plane facing the camera over the object's origin
                     const objectWorldPos = new THREE.Vector3();
                     object.getWorldPosition(objectWorldPos);
                     const normal = cameraRef.current.getWorldDirection(new THREE.Vector3()).negate();
                     dragPlaneRef.current.setFromNormalAndCoplanarPoint(normal, objectWorldPos);
-
                     if (object.material && object.userData.originalColor) {
                       (object.material as THREE.MeshStandardMaterial).color.setHex(0xffff00);
                     }
-                  } else if (selectedTool === 'Scalpel') {
+                  } else if (selectedTool === 'Scalpel' && p.isPencilGrip) {
+                    // Scalpel action triggers continuously while pencil grip holds over object
+                    // We debounce it so it doesn't repeatedly trigger instantly on same object
+                    object.userData.isSelected = true;
                     performCut(object, hit.point);
-                    if (stateRef.current.onSelectObject) stateRef.current.onSelectObject("Scalpel cut made on " + name + ". Please explain what happens when this is cut or removed.");
-                  } else if (selectedTool === 'Retractor') {
+                    if (stateRef.current.onSelectObject) stateRef.current.onSelectObject("Scalpel cut made on " + name, captureScreenshot());
+                  } else if (selectedTool === 'Scissors' && p.isSnipping) {
+                    object.userData.isSelected = true;
+                    object.scale.multiplyScalar(0.7); // Simulate cutting tissue away
+                    if (stateRef.current.onSelectObject) stateRef.current.onSelectObject("Scissors snip made on " + name, captureScreenshot());
+                  } else if (selectedTool === 'Retractor' && p.isClawGrip) {
+                    object.userData.isSelected = true;
                     performRetract(object);
+                  } else if (selectedTool === 'Cautery' && p.isTriggerGrip) {
+                    object.userData.isSelected = true;
+                    // Trigger burn particle effect
+                    if (particlesRef.current) {
+                      particlesRef.current.position.copy(hit.point);
+                      (particlesRef.current.material as THREE.PointsMaterial).color.setHex(0xffaaaa); // bright hot
+                      (particlesRef.current.material as THREE.PointsMaterial).opacity = 1;
+                      setTimeout(() => {
+                        if (particlesRef.current) (particlesRef.current.material as THREE.PointsMaterial).opacity = 0;
+                      }, 200);
+                    }
+                    if (object.material && object.userData.originalColor) {
+                      (object.material as THREE.MeshStandardMaterial).color.setHex(0x330000); // burned tissue
+                    }
+                    if (stateRef.current.onSelectObject) stateRef.current.onSelectObject("Cauterized " + name, captureScreenshot());
                   }
                 }
 
-                setTimeout(() => { object.userData.isSelected = false; }, 1000); // Debounce
+                // Debounce selection
+                if (object.userData.isSelected) {
+                  setTimeout(() => { object.userData.isSelected = false; }, 800);
+                }
               }
             }
           }

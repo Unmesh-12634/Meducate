@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, ChevronLeft, ChevronRight, Layers, Eye, Activity, Play, Hand, Mic, Bot, BookOpen, Building2, Stethoscope } from 'lucide-react';
-import { Viewer, type GestureControls } from '../3d/Viewer';
-import { HandGestureController, type NormalizedLandmark } from '../3d/HandGestureController';
+import { Viewer } from '../3d/Viewer';
+import { HandGestureController, type NormalizedLandmark, type GestureControls } from '../3d/HandGestureController';
 import { VoiceCommandController } from '../3d/VoiceCommandController';
 import { AIAssistantOverlay } from '../3d/AIAssistantOverlay';
 import { GestureGuidePanel } from '../3d/GestureGuidePanel';
@@ -23,6 +23,7 @@ export function SimulatorPage() {
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [aiAssistantOpen, setAiAssistantOpen] = useState(false);
   const [aiAssistantTrigger, setAiAssistantTrigger] = useState<string | null>(null);
+  const [aiScreenshot, setAiScreenshot] = useState<string | null>(null);
   const [gestureControls, setGestureControls] = useState<GestureControls | null>(null);
   const [lastVoiceCommand, setLastVoiceCommand] = useState<any>(null);
   const [gestureGuideOpen, setGestureGuideOpen] = useState(false);
@@ -38,16 +39,6 @@ export function SimulatorPage() {
 
   const organs = [
     { id: 'full_body', name: 'Full Anatomy', category: 'General' },
-    { id: 'heart', name: 'Heart', category: 'Cardiovascular' },
-    // ... (omitting lines for brevity if not changing) ...
-    // Actually, I should just target the state definition area and the return block separately or be careful with context.
-    // Let's do a targeted replace for state.
-
-    // ... 
-    // Wait, I can't split widely separated edits in replace_file_content.
-    // I will just add the state near other states.
-    // And then use a second replace for the JSX.
-
     { id: 'brain', name: 'Brain', category: 'Nervous' },
     { id: 'lungs', name: 'Lungs', category: 'Respiratory' },
     { id: 'liver', name: 'Liver', category: 'Digestive' },
@@ -108,8 +99,9 @@ export function SimulatorPage() {
     correctAnswer: 1,
   };
 
-  const handleSelectObject = (name: string) => {
+  const handleSelectObject = (name: string, screenshot?: string) => {
     setAiAssistantOpen(true);
+    setAiScreenshot(screenshot || null);
     setAiAssistantTrigger(`Explain the anatomy and function of the ${name}. Keep it very brief, under 2 sentences, as if you are a surgical assistant providing quick context during a dissection.`);
 
     // Speak it immediately
@@ -375,15 +367,22 @@ export function SimulatorPage() {
             onClose={() => setAiAssistantOpen(false)}
             context={`${organInfo[selectedOrgan]?.name} - ${mode} Mode`}
             triggerQuery={aiAssistantTrigger}
-            onQueryProcessed={() => setAiAssistantTrigger(null)}
+            screenshotBase64={aiScreenshot}
+            onQueryProcessed={() => {
+              setAiAssistantTrigger(null);
+              setAiScreenshot(null);
+            }}
           />
 
-          {/* Hand Gesture Controller */}
           <HandGestureController
             enabled={gestureEnabled}
             onGestureChange={(controls) => {
               setGestureControls(controls);
               if (controls.mode !== mode) setMode(controls.mode);
+              // Bind tool selection from Hand Palette
+              if (controls.activeTool && controls.activeTool !== 'None' && controls.activeTool !== selectedTool) {
+                setSelectedTool(controls.activeTool);
+              }
             }}
             onHandLandmarks={setHandLandmarks}
           />
@@ -425,7 +424,9 @@ export function SimulatorPage() {
                 {[
                   { name: 'Scalpel', icon: '🔪' },
                   { name: 'Forceps', icon: '🥢' },
-                  { name: 'Retractor', icon: '🔧' }
+                  { name: 'Scissors', icon: '✂️' },
+                  { name: 'Retractor', icon: '🔧' },
+                  { name: 'Cautery', icon: '🔥' }
                 ].map((tool) => (
                   <button
                     key={tool.name}

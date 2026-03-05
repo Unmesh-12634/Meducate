@@ -1,23 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react'; // Add AnimatePresence import
 import { Bot, X, Send, Volume2, VolumeX } from 'lucide-react';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 interface AIAssistantOverlayProps {
     isOpen: boolean;
     onClose: () => void;
     context?: string; // e.g., "Heart Dissection"
     triggerQuery?: string | null;
+    screenshotBase64?: string | null;
     onQueryProcessed?: () => void;
 }
 
-// Initialize Gemini (Replace with your actual key management if needed)
-// NOTE: In a real app, use environment variables. 
-// For this demo, we assume the key is available or passed down.
-const API_KEY = "AIzaSyAf0PQug-lFt2-rGHCxHdeMIIsx4xMBH-0";
-const genAI = new GoogleGenerativeAI(API_KEY);
-
-export function AIAssistantOverlay({ isOpen, onClose, context = "General Anatomy", triggerQuery, onQueryProcessed }: AIAssistantOverlayProps) {
+export function AIAssistantOverlay({ isOpen, onClose, context = "General Anatomy", triggerQuery, screenshotBase64, onQueryProcessed }: AIAssistantOverlayProps) {
     const [messages, setMessages] = useState<{ role: 'user' | 'model', text: string }[]>([
         { role: 'model', text: `Hello! I'm your surgical AI assistant. I'm monitoring your ${context} session. Ask me anything.` }
     ]);
@@ -58,22 +52,22 @@ export function AIAssistantOverlay({ isOpen, onClose, context = "General Anatomy
         setIsLoading(true);
 
         try {
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const response = await fetch('http://localhost:8080/evaluate-surgery', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contextPrompt: `Current Context: ${context}. User Question: ${userMsg}`,
+                    screenshotBase64: screenshotBase64
+                })
+            });
+            const data = await response.json();
 
-            const prompt = `
-        You are an advanced AI Surgical Assistant in a 3D medical simulation. 
-        Current Context: ${context}.
-        User Question: ${userMsg}
-        
-        Provide a concise, medically accurate, and professional response suitable for a medical student or surgeon. 
-        Keep it under 3 sentences if possible for quick reading during "surgery".
-      `;
-
-            const result = await model.generateContent(prompt);
-            const response = result.response.text();
-
-            setMessages(prev => [...prev, { role: 'model', text: response }]);
-            speak(response);
+            if (data.feedback) {
+                setMessages(prev => [...prev, { role: 'model', text: data.feedback }]);
+                speak(data.feedback);
+            } else {
+                throw new Error("No feedback received");
+            }
         } catch (error) {
             console.error("AI Error:", error);
             setMessages(prev => [...prev, { role: 'model', text: "I'm having trouble connecting to the medical database right now." }]);
