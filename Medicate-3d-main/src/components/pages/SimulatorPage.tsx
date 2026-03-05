@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, ChevronLeft, ChevronRight, Layers, Eye, Activity, Play, Hand, Mic, Bot, BookOpen, Building2, Stethoscope } from 'lucide-react';
 import { Viewer, type GestureControls } from '../3d/Viewer';
-import { HandGestureController } from '../3d/HandGestureController';
+import { HandGestureController, type NormalizedLandmark } from '../3d/HandGestureController';
 import { VoiceCommandController } from '../3d/VoiceCommandController';
 import { AIAssistantOverlay } from '../3d/AIAssistantOverlay';
 import { GestureGuidePanel } from '../3d/GestureGuidePanel';
@@ -26,6 +26,7 @@ export function SimulatorPage() {
   const [gestureControls, setGestureControls] = useState<GestureControls | null>(null);
   const [lastVoiceCommand, setLastVoiceCommand] = useState<any>(null);
   const [gestureGuideOpen, setGestureGuideOpen] = useState(false);
+  const [handLandmarks, setHandLandmarks] = useState<NormalizedLandmark[][] | null>(null);
   const currentGesture = gestureEnabled ? (gestureControls ? 'Gesture Active' : 'Show your hand') : '';
   const [explainerOpen, setExplainerOpen] = useState(false);
   // ── NEW: Lab mode tabs ────────────────────────────────────────────────────
@@ -299,7 +300,17 @@ export function SimulatorPage() {
               <span className="hidden sm:inline text-xs">Guide</span>
             </button>
             <button
-              onClick={() => setGestureEnabled(!gestureEnabled)}
+              onClick={() => {
+                if (gestureEnabled) {
+                  // Turn off: reset gesture controls and force model back to normal
+                  setGestureEnabled(false);
+                  setGestureControls(null);
+                  setHandLandmarks(null);
+                  setMode('normal');
+                } else {
+                  setGestureEnabled(true);
+                }
+              }}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${gestureEnabled
                 ? 'bg-[#00A896] text-white'
                 : 'bg-muted hover:bg-muted/80'
@@ -336,6 +347,7 @@ export function SimulatorPage() {
             lastCommand={lastVoiceCommand}
             onSelectObject={handleSelectObject}
             orTheater={orTheaterMode}
+            handLandmarks={handLandmarks}
           />
 
           {/* New Controllers */}
@@ -371,11 +383,9 @@ export function SimulatorPage() {
             enabled={gestureEnabled}
             onGestureChange={(controls) => {
               setGestureControls(controls);
-              // Sync mode from gesture
-              if (controls.mode !== mode) {
-                setMode(controls.mode);
-              }
+              if (controls.mode !== mode) setMode(controls.mode);
             }}
+            onHandLandmarks={setHandLandmarks}
           />
 
           {/* Organ Explainer Card */}

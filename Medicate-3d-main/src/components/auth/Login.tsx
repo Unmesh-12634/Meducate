@@ -24,7 +24,7 @@ function GoogleIcon() {
   );
 }
 
-export function Login({ onLogin, onSwitchToSignup, onClose }: LoginProps) {
+export function Login({ onLogin, onSwitchToSignup }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);

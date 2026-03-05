@@ -3,6 +3,17 @@ import { motion } from 'motion/react';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as THREE from 'three';
 import { useOREnvironment } from './OREnvironment';
+import type { NormalizedLandmark } from './HandGestureController';
+
+// MediaPipe hand bone connections (21 landmarks)
+const HAND_CONNECTIONS: [number, number][] = [
+  [0, 1], [1, 2], [2, 3], [3, 4],
+  [5, 6], [6, 7], [7, 8],
+  [9, 10], [10, 11], [11, 12],
+  [13, 14], [14, 15], [15, 16],
+  [17, 18], [18, 19], [19, 20],
+  [0, 5], [5, 9], [9, 13], [13, 17], [0, 17],
+];
 
 export interface GestureControls {
   rotationX: number;
@@ -15,13 +26,15 @@ export interface GestureControls {
 interface ViewerProps {
   mode?: 'normal' | 'dissection' | 'pathology';
   selectedOrgan?: string;
-  selectedTool?: string; // Explicitly added to interface
+  selectedTool?: string;
   gestureControls?: GestureControls | null;
   gestureEnabled?: boolean;
   voiceEnabled?: boolean;
-  lastCommand?: any; // VoiceCommand type, kept loose to avoid circular dependency or duplicated type
+  lastCommand?: any;
   onSelectObject?: (name: string) => void;
-  orTheater?: boolean; // NEW: enables OR theater environment
+  orTheater?: boolean;
+  /** Smoothed hand landmarks from HandGestureController for the overlay skeleton */
+  handLandmarks?: NormalizedLandmark[][] | null;
 }
 
 // Configuration for Models
@@ -50,8 +63,10 @@ export function Viewer({
   lastCommand = null,
   onSelectObject,
   orTheater = false,
+  handLandmarks = null,
 }: ViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Persistent Refs (Engine)
@@ -60,9 +75,8 @@ export function Viewer({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const gestureGroupRef = useRef<THREE.Group | null>(null);
   const raycasterRef = useRef(new THREE.Raycaster());
-  const mouseRef = useRef(new THREE.Vector2());
   const animationFrameId = useRef<number>();
-  const particlesRef = useRef<THREE.Points | null>(null); // For cut effects
+  const particlesRef = useRef<THREE.Points | null>(null);
 
   // Store original positions for Exploded View
   const originalPositionsRef = useRef<Map<string, THREE.Vector3>>(new Map());
@@ -84,6 +98,53 @@ export function Viewer({
   useEffect(() => {
     stateRef.current = { mode, selectedTool, gestureEnabled, gestureControls, selectedOrgan, onSelectObject };
   }, [mode, selectedTool, gestureEnabled, gestureControls, selectedOrgan, onSelectObject]);
+
+  // ── Hand overlay canvas: draw glowing skeleton on main viewport ────────────
+  useEffect(() => {
+    const canvas = overlayCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!handLandmarks || handLandmarks.length === 0) return;
+
+    const W = canvas.width;
+    const H = canvas.height;
+
+    handLandmarks.forEach(landmarks => {
+      // Draw glowing connectors
+      ctx.save();
+      ctx.shadowBlur = 18;
+      ctx.shadowColor = '#00FFE0';
+      ctx.strokeStyle = '#00A896';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+
+      HAND_CONNECTIONS.forEach(([a, b]) => {
+        const la = landmarks[a];
+        const lb = landmarks[b];
+        // Mirror X because webcam is flipped
+        ctx.beginPath();
+        ctx.moveTo((1 - la.x) * W, la.y * H);
+        ctx.lineTo((1 - lb.x) * W, lb.y * H);
+        ctx.stroke();
+      });
+
+      // Draw landmark dots
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = '#00FFE0';
+      ctx.fillStyle = '#00FFE0';
+      landmarks.forEach((lm, i) => {
+        const r = i === 0 ? 7 : (i % 4 === 0 ? 5 : 3.5); // wrist bigger, tips medium
+        ctx.beginPath();
+        ctx.arc((1 - lm.x) * W, lm.y * H, r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      ctx.restore();
+    });
+  }, [handLandmarks]);
 
   // --- VOICE COMMAND HANDLER ---
   useEffect(() => {
@@ -211,14 +272,6 @@ export function Viewer({
       }
     };
 
-
-    const performGrab = (object: THREE.Mesh) => {
-      console.log("Grabbing:", object.name);
-      const originalColor = (object.material as THREE.MeshStandardMaterial).color.getHex();
-      (object.material as THREE.MeshStandardMaterial).color.setHex(0xffff00);
-      setTimeout(() => { if (object.material) (object.material as THREE.MeshStandardMaterial).color.setHex(originalColor); }, 300);
-    };
-
     const performRetract = (object: THREE.Mesh) => {
       console.log("Retracting:", object.name);
       // Determine direction away from center (0,0,0) and push it out
@@ -274,6 +327,9 @@ export function Viewer({
       // 1. Auto Rotate (Normal Mode only, no gestures)
       if (!gestureEnabled && !isDragging && mode === 'normal' && gestureGroupRef.current) {
         gestureGroupRef.current.rotation.y -= 0.005; // Left rotation
+        // Smoothly return X and Z to upright (0)
+        gestureGroupRef.current.rotation.x = THREE.MathUtils.lerp(gestureGroupRef.current.rotation.x, 0, 0.05);
+        gestureGroupRef.current.rotation.z = THREE.MathUtils.lerp(gestureGroupRef.current.rotation.z, 0, 0.05);
       }
 
       // 2. Gesture Control (High Priority)
@@ -378,15 +434,16 @@ export function Viewer({
           }
         }
       }
+
       // 3. Heartbeat Animation (Only in Normal Mode, Heart, No Gestures)
-      else if (mode === 'normal' && selectedOrgan === 'heart' && gestureGroupRef.current && !isDragging) {
+      if (mode === 'normal' && selectedOrgan === 'heart' && gestureGroupRef.current && !isDragging && !gestureEnabled) {
         const time = Date.now() * 0.0015; // Slower, rhythmic speed
         // Beat logic: Base + Pulse. sin^8 makes it sharp "Lub-Dub".
         const beat = 1 + Math.pow(Math.sin(time * 3), 8) * 0.04;
         gestureGroupRef.current.scale.set(beat, beat, beat);
       }
       // 4. Reset Scale (if not beating or controlling)
-      else if (gestureGroupRef.current) {
+      else if (gestureGroupRef.current && !gestureEnabled) {
         gestureGroupRef.current.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
       }
 
@@ -575,6 +632,14 @@ export function Viewer({
   return (
     <div className="relative w-full h-full rounded-2xl overflow-hidden cursor-crosshair"
       style={{ background: orTheater ? '#000000' : undefined }}>
+      {/* Hand skeleton overlay — drawn over the 3D model */}
+      <canvas
+        ref={overlayCanvasRef}
+        width={1280}
+        height={720}
+        className="absolute inset-0 w-full h-full pointer-events-none z-10"
+        style={{ opacity: handLandmarks && handLandmarks.length > 0 ? 1 : 0, transition: 'opacity 0.3s' }}
+      />
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
           <div className="flex flex-col items-center gap-4">

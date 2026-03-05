@@ -24,7 +24,7 @@ interface SignupProps {
   onClose?: () => void;
 }
 
-export function Signup({ onSignup, onSwitchToLogin, onClose }: SignupProps) {
+export function Signup({ onSignup, onSwitchToLogin }: SignupProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

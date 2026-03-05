@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Hands, Results } from '@mediapipe/hands';
 import { Camera } from '@mediapipe/camera_utils';
-import { drawConnectors, drawLandmarks } from '@mediapipe/drawing_utils';
 import { HAND_CONNECTIONS } from '@mediapipe/hands';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -13,12 +12,248 @@ export interface GestureControls {
   pointer?: { x: number; y: number; isPinching: boolean; isPointing: boolean } | null;
 }
 
+export interface NormalizedLandmark {
+  x: number;
+  y: number;
+  z: number;
+}
+
 interface HandGestureControllerProps {
   enabled: boolean;
   onGestureChange: (controls: GestureControls) => void;
+  /** Emits smoothed 2D landmark positions (normalized 0-1) for the hand overlay canvas */
+  onHandLandmarks?: (landmarks: NormalizedLandmark[][] | null) => void;
 }
 
-export function HandGestureController({ enabled, onGestureChange }: HandGestureControllerProps) {
+// ── Gesture tutorial data ──────────────────────────────────────────────────
+const TUTORIAL_GESTURES = [
+  {
+    name: 'Open Palm → Rotate',
+    emoji: '🖐️',
+    description: 'Spread all fingers and move your hand to rotate the model',
+    color: '#00A896',
+    // finger extended states [thumb, index, middle, ring, pinky]
+    fingers: [true, true, true, true, true],
+  },
+  {
+    name: 'Pinch → Zoom',
+    emoji: '🤏',
+    description: 'Touch thumb and index finger together to zoom in/out',
+    color: '#FFD166',
+    fingers: [false, false, false, false, false], // pinch special
+  },
+  {
+    name: 'Peace Sign → Pathology',
+    emoji: '✌️',
+    description: 'Raise index and middle fingers for Pathology mode',
+    color: '#EF476F',
+    fingers: [false, true, true, false, false],
+  },
+  {
+    name: 'Fist → Normal Mode',
+    emoji: '✊',
+    description: 'Close your fist to return to Normal viewing mode',
+    color: '#06D6A0',
+    fingers: [false, false, false, false, false],
+  },
+];
+
+// Draws an animated illustrative hand based on finger states
+function TutorialHandSVG({
+  fingers,
+  color,
+  isPinch,
+  tick,
+}: {
+  fingers: boolean[];
+  color: string;
+  isPinch?: boolean;
+  tick: number;
+}) {
+  const pulse = 1 + Math.sin(tick * 0.08) * 0.03;
+  const pinchOffset = isPinch ? 22 : 0;
+
+  // Landmark positions for a stylised flat hand (palm up, fingers pointing up)
+  const palmCx = 60;
+  const palmCy = 110;
+
+  // [base_x, tip_y_extended, tip_y_curled]
+  const fingerDefs = [
+    { bx: 28, baseY: 85, extY: 45, curlY: 82 },  // thumb (offset style)
+    { bx: 35, baseY: 80, extY: 20, curlY: 72 },  // index
+    { bx: 52, baseY: 78, extY: 15, curlY: 70 },  // middle
+    { bx: 68, baseY: 80, extY: 20, curlY: 72 },  // ring
+    { bx: 84, baseY: 85, extY: 30, curlY: 78 },  // pinky
+  ];
+
+  return (
+    <svg width="120" height="160" viewBox="0 0 120 160" style={{ transform: `scale(${pulse})`, transformOrigin: 'center', filter: `drop-shadow(0 0 8px ${color}88)` }}>
+      {/* Palm */}
+      <ellipse cx={palmCx} cy={palmCy} rx={38} ry={32} fill={`${color}22`} stroke={color} strokeWidth="2" />
+
+      {/* Fingers */}
+      {fingerDefs.map((f, i) => {
+        const isThumb = i === 0;
+        const ext = isPinch ? (i < 2) : fingers[i];
+        const tipY = ext ? f.extY : f.curlY;
+
+        // Pinch: draw index curled toward thumb
+        const adjustedX = isThumb && isPinch ? f.bx + pinchOffset : f.bx;
+
+        const midY = (f.baseY + tipY) / 2;
+
+        return (
+          <g key={i}>
+            {/* Finger line */}
+            <path
+              d={`M ${adjustedX} ${f.baseY} Q ${adjustedX + (isThumb ? 4 : 0)} ${midY} ${adjustedX} ${tipY}`}
+              stroke={color}
+              strokeWidth={ext ? 5 : 4}
+              strokeLinecap="round"
+              fill="none"
+              opacity={ext ? 1 : 0.5}
+            />
+            {/* Tip dot */}
+            <circle cx={adjustedX} cy={tipY} r={isPinch && i < 2 ? 6 : 4} fill={color} opacity={ext ? 1 : 0.4} />
+          </g>
+        );
+      })}
+
+      {/* Wrist */}
+      <rect x={palmCx - 18} y={palmCy + 22} width={36} height={18} rx={8} fill={`${color}33`} stroke={color} strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+// ── Tutorial Modal ──────────────────────────────────────────────────────────
+function GestureTutorialModal({ onDismiss }: { onDismiss: () => void }) {
+  const [step, setStep] = useState(0);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 50);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-advance every 2.5 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (step < TUTORIAL_GESTURES.length - 1) {
+        setStep(s => s + 1);
+      } else {
+        onDismiss();
+      }
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [step, onDismiss]);
+
+  const current = TUTORIAL_GESTURES[step];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[100] flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)' }}
+      onClick={onDismiss}
+    >
+      <motion.div
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.8, opacity: 0 }}
+        onClick={e => e.stopPropagation()}
+        className="relative max-w-md w-full mx-4 rounded-3xl overflow-hidden"
+        style={{ border: `2px solid ${current.color}44`, background: 'rgba(10,15,20,0.98)' }}
+      >
+        {/* Header */}
+        <div className="px-6 pt-6 pb-2 text-center">
+          <p className="text-xs uppercase tracking-widest mb-1" style={{ color: current.color }}>
+            Gesture {step + 1} of {TUTORIAL_GESTURES.length}
+          </p>
+          <h2 className="text-2xl font-bold text-white">{current.emoji} {current.name}</h2>
+        </div>
+
+        {/* Animated Hand */}
+        <div className="flex items-center justify-center py-4">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={step}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+            >
+              <TutorialHandSVG
+                fingers={current.fingers}
+                color={current.color}
+                isPinch={step === 1}
+                tick={tick}
+              />
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {/* Description */}
+        <div className="px-6 pb-4 text-center">
+          <p className="text-sm text-white/70">{current.description}</p>
+        </div>
+
+        {/* Progress dots */}
+        <div className="flex items-center justify-center gap-2 pb-5">
+          {TUTORIAL_GESTURES.map((_, i) => (
+            <motion.div
+              key={i}
+              animate={{ scale: i === step ? 1.4 : 1, opacity: i === step ? 1 : 0.3 }}
+              className="w-2 h-2 rounded-full"
+              style={{ background: current.color }}
+            />
+          ))}
+        </div>
+
+        {/* Progress bar */}
+        <motion.div
+          className="absolute bottom-0 left-0 h-1"
+          style={{ background: current.color }}
+          initial={{ width: '0%' }}
+          animate={{ width: '100%' }}
+          transition={{ duration: 2.5, ease: 'linear' }}
+          key={step}
+        />
+
+        {/* Skip button */}
+        <button
+          onClick={onDismiss}
+          className="absolute top-4 right-4 text-white/40 hover:text-white/80 text-xs transition-colors"
+        >
+          Skip ✕
+        </button>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ── Smoothing constant: 0=no smoothing, 1=never moves ─────────────────────
+const LERP_ALPHA = 0.35;
+const DEAD_ZONE = 0.003; // ignore deltas smaller than this
+
+function lerpLandmarks(
+  prev: NormalizedLandmark[],
+  next: NormalizedLandmark[],
+): NormalizedLandmark[] {
+  return next.map((lm, i) => ({
+    x: prev[i].x + (lm.x - prev[i].x) * LERP_ALPHA,
+    y: prev[i].y + (lm.y - prev[i].y) * LERP_ALPHA,
+    z: prev[i].z + (lm.z - prev[i].z) * LERP_ALPHA,
+  }));
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────
+export function HandGestureController({
+  enabled,
+  onGestureChange,
+  onHandLandmarks,
+}: HandGestureControllerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cameraRef = useRef<Camera | null>(null);
@@ -28,59 +263,70 @@ export function HandGestureController({ enabled, onGestureChange }: HandGestureC
   const [gestureMode, setGestureMode] = useState<'normal' | 'dissection' | 'pathology'>('normal');
   const [currentGesture, setCurrentGesture] = useState<string>('Show your hand');
   const [error, setError] = useState<string | null>(null);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const wasEnabledRef = useRef(false);
 
-  // Store rotation and zoom state
   const rotationRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const zoomRef = useRef<number>(1);
   const pointerRef = useRef<{ x: number; y: number; isPinching: boolean; isPointing: boolean } | null>(null);
   const lastHandPosRef = useRef<{ x: number; y: number } | null>(null);
   const initializingRef = useRef(false);
+  const gestureModeRef = useRef<'normal' | 'dissection' | 'pathology'>('normal');
+
+  // Per-hand smoothed landmark buffers
+  const smoothedLandmarksRef = useRef<NormalizedLandmark[][] | null>(null);
+
+  // Show tutorial when gesture mode is first enabled
+  useEffect(() => {
+    if (enabled && !wasEnabledRef.current) {
+      setShowTutorial(true);
+    }
+    wasEnabledRef.current = enabled;
+  }, [enabled]);
+
+  // Keep gestureMode ref in sync for use inside onResults closure
+  useEffect(() => {
+    gestureModeRef.current = gestureMode;
+  }, [gestureMode]);
 
   useEffect(() => {
     if (!enabled) {
-      // Clean up camera and hands when disabled
-      if (cameraRef.current) {
-        cameraRef.current.stop();
-        cameraRef.current = null;
-      }
-      if (handsRef.current) {
-        handsRef.current.close();
-        handsRef.current = null;
-      }
+      if (cameraRef.current) { cameraRef.current.stop(); cameraRef.current = null; }
+      if (handsRef.current) { handsRef.current.close(); handsRef.current = null; }
       setIsInitialized(false);
       setCurrentGesture('Show your hand');
       lastHandPosRef.current = null;
       initializingRef.current = false;
+      smoothedLandmarksRef.current = null;
       setError(null);
+      onHandLandmarks?.(null);
+      // Reset transform states so if enabled again, it starts fresh
+      rotationRef.current = { x: 0, y: 0 };
+      zoomRef.current = 1;
+      gestureModeRef.current = 'normal';
+      setGestureMode('normal');
       return;
     }
 
-    // Prevent multiple initializations
-    if (initializingRef.current || handsRef.current) {
-      return;
-    }
+    if (initializingRef.current || handsRef.current) return;
 
     let mounted = true;
     initializingRef.current = true;
 
-    // Initialize MediaPipe Hands
     const hands = new Hands({
-      locateFile: (file) => {
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-      }
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
     });
 
     hands.setOptions({
       maxNumHands: 2,
       modelComplexity: 1,
-      minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.7
+      minDetectionConfidence: 0.65,
+      minTrackingConfidence: 0.65,
     });
 
     hands.onResults(onResults);
     handsRef.current = hands;
 
-    // Initialize camera
     if (videoRef.current && mounted) {
       const camera = new Camera(videoRef.current, {
         onFrame: async () => {
@@ -89,23 +335,12 @@ export function HandGestureController({ enabled, onGestureChange }: HandGestureC
           }
         },
         width: 640,
-        height: 480
+        height: 480,
       });
 
-      camera.start().then(() => {
-        if (mounted) {
-          setIsInitialized(true);
-          initializingRef.current = false;
-          setError(null);
-        }
-      }).catch((err) => {
-        console.error('Camera initialization failed:', err);
-        if (mounted) {
-          setIsInitialized(false);
-          initializingRef.current = false;
-          setError('Camera access denied or not available');
-        }
-      });
+      camera.start()
+        .then(() => { if (mounted) { setIsInitialized(true); initializingRef.current = false; setError(null); } })
+        .catch(() => { if (mounted) { setIsInitialized(false); initializingRef.current = false; setError('Camera access denied or not available'); } });
 
       cameraRef.current = camera;
     }
@@ -113,27 +348,10 @@ export function HandGestureController({ enabled, onGestureChange }: HandGestureC
     return () => {
       mounted = false;
       initializingRef.current = false;
-
-      // Stop camera first
-      if (cameraRef.current) {
-        try {
-          cameraRef.current.stop();
-        } catch (e) {
-          console.warn('Error stopping camera:', e);
-        }
-        cameraRef.current = null;
-      }
-
-      // Close hands detection
-      if (handsRef.current) {
-        try {
-          handsRef.current.close();
-        } catch (e) {
-          console.warn('Error closing hands:', e);
-        }
-        handsRef.current = null;
-      }
-
+      try { cameraRef.current?.stop(); } catch (_) { /* ignore */ }
+      cameraRef.current = null;
+      try { handsRef.current?.close(); } catch (_) { /* ignore */ }
+      handsRef.current = null;
       setIsInitialized(false);
     };
   }, [enabled]);
@@ -143,192 +361,208 @@ export function HandGestureController({ enabled, onGestureChange }: HandGestureC
 
     const canvasCtx = canvasRef.current.getContext('2d', {
       willReadFrequently: false,
-      desynchronized: true
+      desynchronized: true,
     });
     if (!canvasCtx) return;
 
     try {
-      // Clear canvas
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
-      // Draw the video frame
       if (results.image) {
         canvasCtx.drawImage(results.image, 0, 0, canvasRef.current.width, canvasRef.current.height);
       }
 
-      // Process hand landmarks
       if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        // ── Smooth all detected hands ────────────────────────────────────
+        const rawHands = results.multiHandLandmarks as NormalizedLandmark[][];
 
-        // Draw hand skeleton for all detected hands
-        results.multiHandLandmarks.forEach(landmarks => {
-          drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
-            color: '#00A896',
-            lineWidth: 3
+        // Initialise smoothed buffer on first detection or hand count change
+        if (
+          !smoothedLandmarksRef.current ||
+          smoothedLandmarksRef.current.length !== rawHands.length
+        ) {
+          smoothedLandmarksRef.current = rawHands.map(lms => lms.map(l => ({ ...l })));
+        } else {
+          smoothedLandmarksRef.current = rawHands.map((lms, hi) =>
+            lerpLandmarks(smoothedLandmarksRef.current![hi], lms)
+          );
+        }
+
+        const smoothedHands = smoothedLandmarksRef.current;
+
+        // Draw smoothed skeletons on corner canvas
+        smoothedHands.forEach(landmarks => {
+          // Draw connectors manually using smoothed data
+          canvasCtx.strokeStyle = '#00A896';
+          canvasCtx.lineWidth = 3;
+          canvasCtx.lineCap = 'round';
+          HAND_CONNECTIONS.forEach(([a, b]) => {
+            const la = landmarks[a];
+            const lb = landmarks[b];
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(la.x * canvasRef.current!.width, la.y * canvasRef.current!.height);
+            canvasCtx.lineTo(lb.x * canvasRef.current!.width, lb.y * canvasRef.current!.height);
+            canvasCtx.stroke();
           });
-          drawLandmarks(canvasCtx, landmarks, {
-            color: '#00FFE0',
-            lineWidth: 1,
-            radius: 4
+          // Landmark dots
+          landmarks.forEach(lm => {
+            canvasCtx.beginPath();
+            canvasCtx.arc(
+              lm.x * canvasRef.current!.width,
+              lm.y * canvasRef.current!.height,
+              4, 0, Math.PI * 2,
+            );
+            canvasCtx.fillStyle = '#00FFE0';
+            canvasCtx.fill();
           });
         });
 
-        // Identify hands (Camera is mirrored, so 'Right' might mean 'Left')
-        let camHand: any = null; // Controls camera (typically Left)
-        let toolHand: any = null; // Controls pointer (typically Right)
+        // Emit smoothed landmarks to parent for the main-viewport overlay
+        onHandLandmarks?.(smoothedHands);
 
-        if (results.multiHandLandmarks.length === 1) {
-          // Single hand default to camera for previous behavior
-          camHand = results.multiHandLandmarks[0];
-        } else if (results.multiHandLandmarks.length === 2) {
-          results.multiHandedness.forEach((handedness: any, idx) => {
-            if (handedness.label === 'Right') {
-              // Because the view is mirrored, original 'Right' label applies to user's physical Left hand.
-              camHand = results.multiHandLandmarks[idx];
-            } else {
-              toolHand = results.multiHandLandmarks[idx];
-            }
-          });
+        // ── Assign hands ───────────────────────────────────────────────
+        let camHand: NormalizedLandmark[] | null = null;
+        let toolHand: NormalizedLandmark[] | null = null;
+
+        if (smoothedHands.length === 1) {
+          camHand = smoothedHands[0];
+        } else if (smoothedHands.length === 2) {
+          for (let idx = 0; idx < results.multiHandedness.length; idx++) {
+            const h = results.multiHandedness[idx] as any;
+            if (h.label === 'Right') camHand = smoothedHands[idx] as NormalizedLandmark[];
+            else toolHand = smoothedHands[idx] as NormalizedLandmark[];
+          }
         }
 
-        // --- 1. TOOL HAND (Pointer) ---
+        // ── Tool hand (pointer) ────────────────────────────────────────
         if (toolHand) {
           const gesture = detectGesture(toolHand);
           const indexTip = toolHand[8];
-
-          // Convert localized coords (0 to 1) to standard clip space (-1 to 1) for raycaster
-          // Since camera is mirrored horizontally (flip x), we invert x standard calculation: 
           const x = -((indexTip.x * 2) - 1);
           const y = -((indexTip.y * 2) - 1);
-
-          const isPinching = gesture.name.includes('Pinch');
-          const isPointing = gesture.name.includes('Pointing');
-
-          pointerRef.current = { x, y, isPinching, isPointing };
+          pointerRef.current = {
+            x, y,
+            isPinching: gesture.name.includes('Pinch'),
+            isPointing: gesture.name.includes('Pointing'),
+          };
         } else {
           pointerRef.current = null;
         }
 
-        // --- 2. CAMERA HAND (Rotate/Zoom) ---
+        // ── Camera hand (rotate / zoom) ────────────────────────────────
         if (camHand) {
           const gesture = detectGesture(camHand);
-          setCurrentGesture(results.multiHandLandmarks.length === 2 ? `Dual: ${gesture.name.split(' - ')[0]}` : gesture.name);
+          setCurrentGesture(
+            smoothedHands.length === 2
+              ? `Dual: ${gesture.name.split(' - ')[0]}`
+              : gesture.name,
+          );
 
-          // Update mode based on gesture
-          if (gesture.mode !== gestureMode) {
+          if (gesture.mode !== gestureModeRef.current) {
             setGestureMode(gesture.mode);
+            gestureModeRef.current = gesture.mode;
           }
 
-          const palmCenter = camHand[9]; // Middle finger base (palm center approximation)
+          const palmCenter = camHand[9];
 
           if (lastHandPosRef.current) {
-            // Flipped X axis calculation because of mirror
-            const deltaX = (palmCenter.x - lastHandPosRef.current.x);
-            const deltaY = (palmCenter.y - lastHandPosRef.current.y);
+            const deltaX = palmCenter.x - lastHandPosRef.current.x;
+            const deltaY = palmCenter.y - lastHandPosRef.current.y;
 
-            if (Math.abs(deltaX) > 0.002 || Math.abs(deltaY) > 0.002) {
-              if (gesture.name.includes('Rotate') || gesture.name.includes('Pointing')) {
-                rotationRef.current.y -= deltaX * 4; // Invert deltaX due to flip
-                rotationRef.current.x -= deltaY * 4;
-              }
+            if (
+              (gesture.name.includes('Rotate') || gesture.name.includes('Pointing')) &&
+              (Math.abs(deltaX) > DEAD_ZONE || Math.abs(deltaY) > DEAD_ZONE)
+            ) {
+              // Apply rotation with velocity damping
+              rotationRef.current.y -= deltaX * 3.5;
+              rotationRef.current.x -= deltaY * 3.5;
             }
           }
           lastHandPosRef.current = { x: palmCenter.x, y: palmCenter.y };
 
+          // Zoom via pinch
           if (gesture.name.includes('Pinch')) {
             const thumbTip = camHand[4];
             const indexTip = camHand[8];
             const distance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
             const targetZoom = Math.max(0.3, Math.min(2.5, 1 / (distance * 15)));
-            zoomRef.current = zoomRef.current * 0.8 + targetZoom * 0.2;
+            // Smooth zoom with lerp
+            zoomRef.current = zoomRef.current * 0.85 + targetZoom * 0.15;
           } else {
-            zoomRef.current = zoomRef.current * 0.95 + 1.0 * 0.05;
+            // Gently return to 1× when not pinching
+            zoomRef.current = zoomRef.current * 0.97 + 1.0 * 0.03;
           }
         }
 
-        // Send controls to parent on every frame for smooth updates
         onGestureChange({
           rotationX: rotationRef.current.x,
           rotationY: rotationRef.current.y,
           zoom: zoomRef.current,
-          mode: gestureMode,
-          pointer: pointerRef.current
+          mode: gestureModeRef.current,
+          pointer: pointerRef.current,
         });
       } else {
         setCurrentGesture('Show your hand');
         lastHandPosRef.current = null;
         pointerRef.current = null;
+        smoothedLandmarksRef.current = null;
+        onHandLandmarks?.(null);
       }
 
       canvasCtx.restore();
-    } catch (error) {
-      console.error('Error processing hand gesture:', error);
+    } catch (err) {
+      console.error('Error processing hand gesture:', err);
     }
   }
 
-  function detectGesture(landmarks: any[]): { name: string; mode: 'normal' | 'dissection' | 'pathology' } {
-    // Get finger tips and knuckles
+  function detectGesture(landmarks: NormalizedLandmark[]): {
+    name: string;
+    mode: 'normal' | 'dissection' | 'pathology';
+  } {
+    const wrist = landmarks[0];
     const thumbTip = landmarks[4];
     const indexTip = landmarks[8];
     const middleTip = landmarks[12];
     const ringTip = landmarks[16];
     const pinkyTip = landmarks[20];
-
     const thumbKnuckle = landmarks[2];
     const indexKnuckle = landmarks[5];
     const middleKnuckle = landmarks[9];
     const ringKnuckle = landmarks[13];
     const pinkyKnuckle = landmarks[17];
 
-    // Calculate if finger is extended (tip is farther from palm than knuckle)
-    const wrist = landmarks[0];
+    const dist = (a: NormalizedLandmark, b: NormalizedLandmark) =>
+      Math.hypot(a.x - b.x, a.y - b.y);
 
-    const thumbExtended = Math.hypot(thumbTip.x - wrist.x, thumbTip.y - wrist.y) >
-      Math.hypot(thumbKnuckle.x - wrist.x, thumbKnuckle.y - wrist.y) + 0.05;
-    const indexExtended = Math.hypot(indexTip.x - wrist.x, indexTip.y - wrist.y) >
-      Math.hypot(indexKnuckle.x - wrist.x, indexKnuckle.y - wrist.y) + 0.05;
-    const middleExtended = Math.hypot(middleTip.x - wrist.x, middleTip.y - wrist.y) >
-      Math.hypot(middleKnuckle.x - wrist.x, middleKnuckle.y - wrist.y) + 0.05;
-    const ringExtended = Math.hypot(ringTip.x - wrist.x, ringTip.y - wrist.y) >
-      Math.hypot(ringKnuckle.x - wrist.x, ringKnuckle.y - wrist.y) + 0.05;
-    const pinkyExtended = Math.hypot(pinkyTip.x - wrist.x, pinkyTip.y - wrist.y) >
-      Math.hypot(pinkyKnuckle.x - wrist.x, pinkyKnuckle.y - wrist.y) + 0.05;
+    const thumbExtended = dist(thumbTip, wrist) > dist(thumbKnuckle, wrist) + 0.05;
+    const indexExtended = dist(indexTip, wrist) > dist(indexKnuckle, wrist) + 0.05;
+    const middleExtended = dist(middleTip, wrist) > dist(middleKnuckle, wrist) + 0.05;
+    const ringExtended = dist(ringTip, wrist) > dist(ringKnuckle, wrist) + 0.05;
+    const pinkyExtended = dist(pinkyTip, wrist) > dist(pinkyKnuckle, wrist) + 0.05;
 
     const extendedCount = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length;
-
-    // Pinch gesture - thumb and index close together (zoom control)
-    const pinchDistance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+    const pinchDistance = dist(thumbTip, indexTip);
 
     if (pinchDistance < 0.06 && !middleExtended && !ringExtended && !pinkyExtended) {
-      return { name: '🤏 Pinch - Zoom Active', mode: gestureMode };
+      return { name: '🤏 Pinch - Zoom Active', mode: gestureModeRef.current };
     }
-
-    // All 5 fingers extended = Dissection mode
     if (extendedCount === 4 && thumbExtended) {
       return { name: '✋ Open Hand - Dissection Mode', mode: 'dissection' };
     }
-
-    // Fist (no fingers extended) = Normal mode
     if (extendedCount === 0 && !thumbExtended) {
       return { name: '✊ Fist - Normal Mode', mode: 'normal' };
     }
-
-    // Peace sign (index + middle only) = Pathology mode
     if (indexExtended && middleExtended && !ringExtended && !pinkyExtended && !thumbExtended) {
       return { name: '✌️ Peace Sign - Pathology Mode', mode: 'pathology' };
     }
-
-    // Open palm (3-4 fingers) = Rotate
     if (extendedCount >= 3) {
-      return { name: '🖐️ Open Palm - Rotate Model', mode: gestureMode };
+      return { name: '🖐️ Open Palm - Rotate Model', mode: gestureModeRef.current };
     }
-
-    // Pointing (index only)
     if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
-      return { name: '👆 Pointing - Rotate Model', mode: gestureMode };
+      return { name: '👆 Pointing - Rotate Model', mode: gestureModeRef.current };
     }
-
-    return { name: 'Show a clear gesture', mode: gestureMode };
+    return { name: 'Show a clear gesture', mode: gestureModeRef.current };
   }
 
   if (!enabled) return null;
@@ -337,7 +571,14 @@ export function HandGestureController({ enabled, onGestureChange }: HandGestureC
     <AnimatePresence>
       {enabled && (
         <>
-          {/* Webcam Preview - Bottom Right */}
+          {/* Tutorial overlay */}
+          <AnimatePresence>
+            {showTutorial && (
+              <GestureTutorialModal onDismiss={() => setShowTutorial(false)} />
+            )}
+          </AnimatePresence>
+
+          {/* Webcam preview – bottom right corner */}
           <motion.div
             className="fixed bottom-4 right-4 z-50"
             initial={{ opacity: 0, scale: 0.8 }}
@@ -378,7 +619,6 @@ export function HandGestureController({ enabled, onGestureChange }: HandGestureC
                   </div>
                 )}
 
-                {/* Current Gesture Overlay */}
                 <div className="absolute bottom-2 left-2 right-2 bg-black/70 backdrop-blur-sm px-3 py-2 rounded-lg">
                   <div className="text-[#00A896] font-bold text-xs">{currentGesture}</div>
                   <div className="text-white/70 text-xs mt-0.5">Mode: {gestureMode}</div>
@@ -387,66 +627,42 @@ export function HandGestureController({ enabled, onGestureChange }: HandGestureC
             </div>
           </motion.div>
 
-          {/* Gesture Guide - Top Right */}
+          {/* Gesture reference guide – top left */}
           <motion.div
-            className="fixed top-20 left-4 z-40 w-72"
-            initial={{ opacity: 0, x: 50 }}
+            className="fixed top-20 left-4 z-40 w-64"
+            initial={{ opacity: 0, x: -30 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 50 }}
+            exit={{ opacity: 0, x: -30 }}
           >
-            <div className="bg-background/95 backdrop-blur-sm border border-border rounded-xl p-4 shadow-xl">
-              <div className="flex items-center justify-between mb-3 pb-3 border-b border-border">
+            <div className="bg-background/95 backdrop-blur-sm border border-border rounded-xl p-3 shadow-xl">
+              <div className="flex items-center justify-between mb-2 pb-2 border-b border-border">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-[#00A896] rounded-full animate-pulse" />
-                  <h3 className="text-sm font-bold text-[#00A896]">Gestures Active</h3>
+                  <h3 className="text-xs font-bold text-[#00A896]">Gestures Active</h3>
                 </div>
-                <span className="text-[10px] bg-muted px-2 py-0.5 rounded text-muted-foreground">Keep hand visible</span>
+                <button
+                  onClick={() => setShowTutorial(true)}
+                  className="text-[10px] bg-[#00A896]/10 hover:bg-[#00A896]/20 text-[#00A896] px-2 py-0.5 rounded transition-colors"
+                >
+                  Tutorial
+                </button>
               </div>
-
-              <div className="space-y-2.5 text-xs">
-                <div className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors border border-transparent hover:border-border">
-                  <span className="text-2xl">🖐️</span>
-                  <div className="flex-1">
-                    <div className="font-semibold text-foreground">Rotate Model</div>
-                    <div className="text-muted-foreground">Open palm & move hand slowly</div>
+              <div className="space-y-1.5 text-xs">
+                {[
+                  { emoji: '🖐️', label: 'Open Palm', sub: 'Rotate model' },
+                  { emoji: '🤏', label: 'Pinch', sub: 'Zoom in/out' },
+                  { emoji: '✋', label: 'All fingers', sub: 'Dissection mode' },
+                  { emoji: '✌️', label: 'Peace sign', sub: 'Pathology mode' },
+                  { emoji: '✊', label: 'Fist', sub: 'Normal mode' },
+                ].map(g => (
+                  <div key={g.label} className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-muted/50 transition-colors">
+                    <span className="text-lg w-7 text-center">{g.emoji}</span>
+                    <div>
+                      <div className="font-semibold text-foreground">{g.label}</div>
+                      <div className="text-muted-foreground text-[10px]">{g.sub}</div>
+                    </div>
                   </div>
-                </div>
-
-                <div className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors border border-transparent hover:border-border">
-                  <span className="text-2xl">🤏</span>
-                  <div className="flex-1">
-                    <div className="font-semibold text-foreground">Zoom In/Out</div>
-                    <div className="text-muted-foreground">Pinch thumb & index finger</div>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors border border-transparent hover:border-border">
-                  <span className="text-2xl">✋</span>
-                  <div className="flex-1">
-                    <div className="font-semibold text-foreground">Dissection Mode</div>
-                    <div className="text-muted-foreground">Spread all 5 fingers wide</div>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors border border-transparent hover:border-border">
-                  <span className="text-2xl">✌️</span>
-                  <div className="flex-1">
-                    <div className="font-semibold text-foreground">Pathology Mode</div>
-                    <div className="text-muted-foreground">Show peace sign (2 fingers)</div>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors border border-transparent hover:border-border">
-                  <span className="text-2xl">✊</span>
-                  <div className="flex-1">
-                    <div className="font-semibold text-foreground">Normal Mode</div>
-                    <div className="text-muted-foreground">Close your fist</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground bg-muted/30 -mx-4 -mb-4 p-4 rounded-b-xl">
-                <strong>Pro Tip:</strong> Ensure good lighting and keep your hand within the camera frame (bottom right).
+                ))}
               </div>
             </div>
           </motion.div>
