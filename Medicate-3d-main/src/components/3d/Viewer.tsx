@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as THREE from 'three';
@@ -27,6 +27,10 @@ interface ViewerProps {
   orTheater?: boolean;
   /** Smoothed hand landmarks from HandGestureController for the overlay skeleton */
   handLandmarks?: NormalizedLandmark[][] | null;
+  /** Callback to expose undo function to parent */
+  onUndoRef?: React.MutableRefObject<(() => void) | null>;
+  /** Callback to expose restoreAll function to parent */
+  onRestoreAllRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 // Configuration for Models
@@ -43,6 +47,12 @@ const MODELS: Record<string, { path: string; scale: THREE.Vector3; position: THR
     position: new THREE.Vector3(0, 0, 0),
     rotation: new THREE.Euler(0, -Math.PI / 2, 0)
   },
+  full_body: {
+    path: '/full_body.glb',
+    scale: new THREE.Vector3(1, 1, 1), // Assuming scale is near 1 for exported glb
+    position: new THREE.Vector3(0, -10, 0),
+    rotation: new THREE.Euler(0, 0, 0)
+  },
 };
 
 export function Viewer({
@@ -56,6 +66,8 @@ export function Viewer({
   onSelectObject,
   orTheater = false,
   handLandmarks = null,
+  onUndoRef,
+  onRestoreAllRef,
 }: ViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -79,6 +91,16 @@ export function Viewer({
   const dragOffsetRef = useRef<THREE.Vector3>(new THREE.Vector3());
   const isPinchingRef = useRef<boolean>(false);
 
+  // Dissection history for Undo / Restore All
+  type DissectionAction = {
+    object: THREE.Mesh;
+    prevVisible: boolean;
+    prevScale: THREE.Vector3;
+    prevPosition: THREE.Vector3;
+    prevColor: number | null;
+  };
+  const dissectionHistoryRef = useRef<DissectionAction[]>([]);
+
 
 
   // ── OR Theater Environment ──────────────────────────────────────────────────
@@ -90,6 +112,48 @@ export function Viewer({
   useEffect(() => {
     stateRef.current = { mode, selectedTool, gestureEnabled, gestureControls, selectedOrgan, onSelectObject };
   }, [mode, selectedTool, gestureEnabled, gestureControls, selectedOrgan, onSelectObject]);
+
+  // ── Expose Undo / Restore All to parent ────────────────────────────────────
+  useEffect(() => {
+    if (onUndoRef) {
+      onUndoRef.current = () => {
+        const history = dissectionHistoryRef.current;
+        if (history.length === 0) return;
+        const last = history.pop()!;
+        const obj = last.object;
+        obj.visible = last.prevVisible;
+        obj.scale.copy(last.prevScale);
+        obj.position.copy(last.prevPosition);
+        if (last.prevColor !== null && obj.material) {
+          (obj.material as THREE.MeshStandardMaterial).color.setHex(last.prevColor);
+        }
+      };
+    }
+    if (onRestoreAllRef) {
+      onRestoreAllRef.current = () => {
+        const history = dissectionHistoryRef.current;
+        // Restore all in reverse order
+        while (history.length > 0) {
+          const action = history.pop()!;
+          const obj = action.object;
+          obj.visible = action.prevVisible;
+          obj.scale.copy(action.prevScale);
+          obj.position.copy(action.prevPosition);
+          if (action.prevColor !== null && obj.material) {
+            (obj.material as THREE.MeshStandardMaterial).color.setHex(action.prevColor);
+          }
+        }
+        // Also restore originalPositions for anything that was moved
+        if (gestureGroupRef.current) {
+          gestureGroupRef.current.traverse((child) => {
+            if (child instanceof THREE.Mesh && originalPositionsRef.current.has(child.uuid)) {
+              child.position.copy(originalPositionsRef.current.get(child.uuid)!);
+            }
+          });
+        }
+      };
+    }
+  }, [onUndoRef, onRestoreAllRef]);
 
   // ── Hand overlay canvas: draw glowing skeleton on main viewport ────────────
   useEffect(() => {
@@ -206,6 +270,35 @@ export function Viewer({
     rootGroup.add(gestureGroup);
     gestureGroupRef.current = gestureGroup;
 
+    // TOOLS GROUP (Follows pointer)
+    const toolsGroup = new THREE.Group();
+    scene.add(toolsGroup);
+    toolsGroup.visible = false;
+    const toolMeshes: Record<string, THREE.Object3D> = {};
+
+    const createTool = (geo: THREE.BufferGeometry, color: number) => {
+      const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.8, roughness: 0.2 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = Math.PI / 2;
+      toolsGroup.add(mesh);
+      return mesh;
+    };
+
+    toolMeshes['Scalpel'] = createTool(new THREE.CylinderGeometry(0.05, 0.05, 3), 0xcccccc);
+    toolMeshes['Forceps'] = createTool(new THREE.BoxGeometry(0.2, 0.2, 4), 0xaaaaaa);
+    toolMeshes['Scissors'] = createTool(new THREE.BoxGeometry(0.4, 0.1, 3), 0xdddddd);
+    toolMeshes['Retractor'] = createTool(new THREE.CylinderGeometry(0.15, 0.15, 4), 0xeeeeee);
+    const cauteryGeo = new THREE.CylinderGeometry(0.15, 0.15, 3);
+    const cauteryMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+    const cautery = new THREE.Mesh(cauteryGeo, cauteryMat);
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+    tip.position.y = 1.5;
+    cautery.add(tip);
+    cautery.rotation.x = Math.PI / 2;
+    toolsGroup.add(cautery);
+    toolMeshes['Cautery'] = cautery;
+
+
     // PARTICLES (For Cut Effect)
     const particleGeo = new THREE.BufferGeometry();
     const particleCount = 200; // More particles
@@ -248,7 +341,15 @@ export function Viewer({
     // ACTIONS
     const performCut = (object: THREE.Mesh, point: THREE.Vector3) => {
       if (!object.visible) return;
-      console.log("Cutting:", object.name);
+
+      // Record state before change for undo
+      dissectionHistoryRef.current.push({
+        object,
+        prevVisible: true,
+        prevScale: object.scale.clone(),
+        prevPosition: object.position.clone(),
+        prevColor: (object.material as THREE.MeshStandardMaterial)?.color?.getHex() ?? null,
+      });
 
       // Visual: Scale down and Hide
       object.scale.multiplyScalar(0.9);
@@ -265,50 +366,87 @@ export function Viewer({
     };
 
     const performRetract = (object: THREE.Mesh) => {
-      console.log("Retracting:", object.name);
-      // Determine direction away from center (0,0,0) and push it out
+      // Record state before change for undo
+      dissectionHistoryRef.current.push({
+        object,
+        prevVisible: object.visible,
+        prevScale: object.scale.clone(),
+        prevPosition: object.position.clone(),
+        prevColor: (object.material as THREE.MeshStandardMaterial)?.color?.getHex() ?? null,
+      });
+
       const dir = object.position.clone().normalize();
-      if (dir.lengthSq() === 0) dir.set(0, 0, -1); // fallback
+      if (dir.lengthSq() === 0) dir.set(0, 0, -1);
 
       const targetPos = object.position.clone().add(dir.multiplyScalar(5));
-
-      // Simple animation
       const startPos = object.position.clone();
-      let startTime = Date.now();
+      const startTime = Date.now();
       const duration = 300;
 
       const animateRetract = () => {
         const now = Date.now();
         const progress = Math.min((now - startTime) / duration, 1);
-        // easeOutQuad
         const ease = 1 - (1 - progress) * (1 - progress);
         object.position.lerpVectors(startPos, targetPos, ease);
-
         if (progress < 1) requestAnimationFrame(animateRetract);
       };
       animateRetract();
     };
 
-    // MOUSE MOVE / DRAG (Simple rotation fallback + DRAG TO CUT)
-    let isDragging = false;
+    // MOUSE / TOUCH ROTATION — works in every mode, interrupts auto-rotation
+    const isDraggingRef = { current: false };
+    const userInterruptedRef = { current: false };
+    const inertiaRef = { x: 0, y: 0 };
+    let resumeTimer: ReturnType<typeof setTimeout> | null = null;
     let prevPos = { x: 0, y: 0 };
+    let lastDelta = { x: 0, y: 0 };
 
-    const onMouseDownGlobal = () => isDragging = true;
-    const onMouseUpGlobal = () => isDragging = false;
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return;
+    const onPointerDown = (e: PointerEvent) => {
+      // Only accept left mouse button or single touch
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      isDraggingRef.current = true;
+      userInterruptedRef.current = true;
+      inertiaRef.x = 0;
+      inertiaRef.y = 0;
+      if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null; }
+      prevPos = { x: e.clientX, y: e.clientY };
+    };
+
+    const onPointerUp = () => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      // Give inertia from last delta
+      inertiaRef.x = lastDelta.x * 0.008;
+      inertiaRef.y = lastDelta.y * 0.008;
+      // Resume auto-rotate after 2 seconds of no interaction
+      resumeTimer = setTimeout(() => {
+        userInterruptedRef.current = false;
+        inertiaRef.x = 0;
+        inertiaRef.y = 0;
+      }, 2000);
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!isDraggingRef.current) return;
       const deltaX = e.clientX - prevPos.x;
       const deltaY = e.clientY - prevPos.y;
+      lastDelta = { x: deltaX, y: deltaY };
       if (gestureGroupRef.current) {
-        gestureGroupRef.current.rotation.y += deltaX * 0.01;
-        gestureGroupRef.current.rotation.x += deltaY * 0.01;
+        gestureGroupRef.current.rotation.y += deltaX * 0.008;
+        gestureGroupRef.current.rotation.x += deltaY * 0.008;
+        // Clamp vertical rotation to avoid flipping
+        gestureGroupRef.current.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, gestureGroupRef.current.rotation.x));
       }
       prevPos = { x: e.clientX, y: e.clientY };
     };
 
-    window.addEventListener('mousemove', onMouseMove);
-    containerRef.current.addEventListener('mousedown', onMouseDownGlobal);
-    window.addEventListener('mouseup', onMouseUpGlobal);
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointermove', onPointerMove);
+
+    let lastGestureX = 0;
+    let lastGestureY = 0;
+    let wasGestureEnabled = false;
 
     // ANIMATION LOOP
     const animate = () => {
@@ -316,18 +454,41 @@ export function Viewer({
 
       const { gestureEnabled, gestureControls, mode, selectedOrgan } = stateRef.current;
 
-      // 1. Auto Rotate (Normal Mode only, no gestures)
-      if (!gestureEnabled && !isDragging && mode === 'normal' && gestureGroupRef.current) {
-        gestureGroupRef.current.rotation.y -= 0.005; // Left rotation
-        // Smoothly return X and Z to upright (0)
-        gestureGroupRef.current.rotation.x = THREE.MathUtils.lerp(gestureGroupRef.current.rotation.x, 0, 0.05);
-        gestureGroupRef.current.rotation.z = THREE.MathUtils.lerp(gestureGroupRef.current.rotation.z, 0, 0.05);
+      // 1. Auto Rotate (Normal Mode only, not while user is controlling)
+      const isUserControlling = isDraggingRef.current || userInterruptedRef.current;
+
+      if (!gestureEnabled && !isUserControlling && mode === 'normal' && gestureGroupRef.current) {
+        gestureGroupRef.current.rotation.y -= 0.005;
+      }
+
+      // Apply inertia coast after releasing drag
+      if (!isDraggingRef.current && userInterruptedRef.current && gestureGroupRef.current) {
+        if (Math.abs(inertiaRef.x) > 0.0001 || Math.abs(inertiaRef.y) > 0.0001) {
+          gestureGroupRef.current.rotation.y += inertiaRef.x;
+          gestureGroupRef.current.rotation.x += inertiaRef.y;
+          gestureGroupRef.current.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, gestureGroupRef.current.rotation.x));
+          inertiaRef.x *= 0.92;  // friction
+          inertiaRef.y *= 0.92;
+        }
       }
 
       // 2. Gesture Control (High Priority)
       if (gestureEnabled && gestureControls && gestureGroupRef.current) {
-        gestureGroupRef.current.rotation.x = gestureControls.rotationX;
-        gestureGroupRef.current.rotation.y = gestureControls.rotationY;
+        if (!wasGestureEnabled) {
+          lastGestureX = gestureControls.rotationX;
+          lastGestureY = gestureControls.rotationY;
+        }
+
+        const deltaX = gestureControls.rotationX - lastGestureX;
+        const deltaY = gestureControls.rotationY - lastGestureY;
+        
+        lastGestureX = gestureControls.rotationX;
+        lastGestureY = gestureControls.rotationY;
+
+        // Apply only the delta, allowing mouse rotation to co-exist
+        gestureGroupRef.current.rotation.x += deltaX;
+        gestureGroupRef.current.rotation.y += deltaY;
+
         const s = gestureControls.zoom;
         gestureGroupRef.current.scale.set(s, s, s);
 
@@ -463,7 +624,7 @@ export function Viewer({
       }
 
       // 3. Heartbeat Animation (Only in Normal Mode, Heart, No Gestures)
-      if (mode === 'normal' && selectedOrgan === 'heart' && gestureGroupRef.current && !isDragging && !gestureEnabled) {
+      if (mode === 'normal' && selectedOrgan === 'heart' && gestureGroupRef.current && !isDraggingRef.current && !gestureEnabled) {
         const time = Date.now() * 0.0015; // Slower, rhythmic speed
         // Beat logic: Base + Pulse. sin^8 makes it sharp "Lub-Dub".
         const beat = 1 + Math.pow(Math.sin(time * 3), 8) * 0.04;
@@ -474,7 +635,34 @@ export function Viewer({
         gestureGroupRef.current.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
       }
 
+      // 5. Update 3D Tools visual representation
+      if (mode === 'dissection' && selectedTool && selectedTool !== 'None') {
+        Object.keys(toolMeshes).forEach(key => {
+          toolMeshes[key].visible = (key === selectedTool);
+        });
+
+        // Update position to pointer if gesture is enabled, else to center
+        if (gestureEnabled && gestureControls && gestureControls.pointer && cameraRef.current) {
+          toolsGroup.visible = true;
+          const p = gestureControls.pointer;
+          raycasterRef.current.setFromCamera(new THREE.Vector2(p.x, p.y), cameraRef.current);
+          const toolPos = cameraRef.current.position.clone().add(raycasterRef.current.ray.direction.multiplyScalar(20));
+          toolsGroup.position.copy(toolPos);
+          toolsGroup.lookAt(cameraRef.current.position);
+          
+          if (p.isPinching || p.isPencilGrip || p.isSnipping || p.isClawGrip || p.isTriggerGrip) {
+             toolsGroup.position.add(raycasterRef.current.ray.direction.multiplyScalar(2)); // slight poke forward
+          }
+        } else {
+          // Hide if gesture is not active
+          toolsGroup.visible = false;
+        }
+      } else {
+        toolsGroup.visible = false;
+      }
+
       renderer.render(scene, camera);
+      wasGestureEnabled = gestureEnabled;
     };
     animate();
 
@@ -482,14 +670,13 @@ export function Viewer({
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener('resize', onResize);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUpGlobal);
-      if (containerRef.current) containerRef.current.removeEventListener('mousedown', onMouseDownGlobal);
-
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointermove', onPointerMove);
+      if (resumeTimer) clearTimeout(resumeTimer);
       cancelAnimationFrame(animationFrameId.current!);
       if (rendererRef.current) {
         rendererRef.current.dispose();
-        // Force context loss cleanup
         const gl = rendererRef.current.domElement.getContext('webgl');
         gl?.getExtension('WEBGL_lose_context')?.loseContext();
       }
@@ -522,53 +709,46 @@ export function Viewer({
     else cameraRef.current.position.set(0, 10, 60);
 
     // Load New Content
-    if (selectedOrgan === 'full_body') {
-      const proceduralBody = createProceduralBody(originalPositionsRef.current); // Pass ref to store positions
-      gestureGroup.add(proceduralBody);
-      setIsLoading(false);
-    } else {
-      // Load GLB
-      const config = MODELS[selectedOrgan] || MODELS['heart']; // Fallback safely
-      const loader = new GLTFLoader();
+    const config = MODELS[selectedOrgan] || MODELS['heart']; // Fallback safely
+    const loader = new GLTFLoader();
 
-      loader.load(config.path, (gltf) => {
-        const model = gltf.scene;
-        model.scale.copy(config.scale);
-        model.position.copy(config.position);
-        model.rotation.copy(config.rotation);
+    loader.load(config.path, (gltf) => {
+      const model = gltf.scene;
+      model.scale.copy(config.scale);
+      model.position.copy(config.position);
+      model.rotation.copy(config.rotation);
 
-        // Center it
-        const box = new THREE.Box3().setFromObject(model);
-        const center = box.getCenter(new THREE.Vector3());
-        model.position.sub(center);
+      // Center it
+      const box = new THREE.Box3().setFromObject(model);
+      const center = box.getCenter(new THREE.Vector3());
+      model.position.sub(center);
 
-        // Traverse and store original positions for explode
-        model.traverse((child: THREE.Object3D) => {
-          if (child instanceof THREE.Mesh) {
-            originalPositionsRef.current.set(child.uuid, child.position.clone());
-            // Ensure we can see inside
-            if (child.material) {
-              // Handle array of materials
-              if (Array.isArray(child.material)) {
-                child.material.forEach((mat: THREE.Material) => {
-                  mat.side = THREE.DoubleSide;
-                  mat.needsUpdate = true;
-                });
-              } else {
-                child.material.side = THREE.DoubleSide;
-                child.material.needsUpdate = true;
-              }
+      // Traverse and store original positions for explode
+      model.traverse((child: THREE.Object3D) => {
+        if (child instanceof THREE.Mesh) {
+          originalPositionsRef.current.set(child.uuid, child.position.clone());
+          // Ensure we can see inside
+          if (child.material) {
+            // Handle array of materials
+            if (Array.isArray(child.material)) {
+              child.material.forEach((mat: THREE.Material) => {
+                mat.side = THREE.DoubleSide;
+                mat.needsUpdate = true;
+              });
+            } else {
+              child.material.side = THREE.DoubleSide;
+              child.material.needsUpdate = true;
             }
           }
-        });
-
-        gestureGroup.add(model);
-        setIsLoading(false);
-      }, undefined, (err) => {
-        console.error("Failed to load model:", err);
-        setIsLoading(false);
+        }
       });
-    }
+
+      gestureGroup.add(model);
+      setIsLoading(false);
+    }, undefined, (err) => {
+      console.error("Failed to load model:", err);
+      setIsLoading(false);
+    });
 
   }, [selectedOrgan]);
 
@@ -605,56 +785,7 @@ export function Viewer({
 
   }, [mode]);
 
-  // --- Helper: Procedural Body Generator ---
-  const createProceduralBody = (positionsMap: Map<string, THREE.Vector3>) => {
-    const root = new THREE.Group();
 
-    // Simple helpers for materials
-    const boneMat = new THREE.MeshPhysicalMaterial({ color: 0xeeeeee, roughness: 0.5 });
-    const muscleMat = new THREE.MeshPhysicalMaterial({ color: 0xcc3333, roughness: 0.6 });
-    const skinMat = new THREE.MeshPhysicalMaterial({ color: 0xeebb99, roughness: 0.4 });
-
-    const createPart = (w: number, h: number, d: number, y: number, name: string) => {
-      const grp = new THREE.Group();
-      grp.position.y = y;
-
-      // Store Group position ? No, store MESH positions for individual explosion
-      // Actually, easier to explode the Groups for the body parts
-      const geo = new THREE.BoxGeometry(w, h, d);
-      const skin = new THREE.Mesh(geo, skinMat);
-      skin.name = `${name}_skin`;
-
-      const muscle = new THREE.Mesh(geo, muscleMat);
-      muscle.scale.multiplyScalar(0.9);
-      muscle.name = `${name}_muscle`;
-
-      const bone = new THREE.Mesh(geo, boneMat);
-      bone.scale.multiplyScalar(0.7);
-      bone.name = `${name}_bone`;
-
-      // Store positions if we want to explode LAYERS (peel onion)
-      // or explode BODY PARTS (arms separate from torso)
-      // Implementation: Store basic layers
-      [skin, muscle, bone].forEach(m => {
-        positionsMap.set(m.uuid, m.position.clone()); // Local 0,0,0
-      });
-
-      grp.add(bone);
-      grp.add(muscle);
-      grp.add(skin);
-      return grp;
-    };
-
-    const torso = createPart(25, 40, 15, 0, 'torso');
-    root.add(torso);
-    positionsMap.set(torso.uuid, torso.position.clone());
-
-    const head = createPart(14, 18, 14, 30, 'head');
-    root.add(head);
-    positionsMap.set(head.uuid, head.position.clone());
-
-    return root;
-  };
 
   return (
     <div className="relative w-full h-full rounded-2xl overflow-hidden cursor-crosshair"

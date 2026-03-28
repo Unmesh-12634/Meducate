@@ -21,3 +21,8 @@ yarn-error.log*
 .vscode/
 *.log
 .vercel
+
+# Ignore large 3D models per user request
+hands.glb
+first_person_hands_rigged.glb
+*.blend

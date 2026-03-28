@@ -136,12 +136,15 @@ export function OrganExplainerCard({ organ, onClose }: OrganExplainerCardProps) 
                                         {isSpeaking ? <VolumeX size={14} /> : <Volume2 size={14} />}
                                     </button>
                                     <button
-                                        onClick={() => {
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            e.preventDefault();
                                             GeminiService.stopSpeech();
                                             setIsSpeaking(false);
                                             onClose();
                                         }}
-                                        className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
+                                        className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground relative z-50 pointer-events-auto cursor-pointer"
                                     >
                                         <X size={14} />
                                     </button>

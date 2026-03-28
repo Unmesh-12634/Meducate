@@ -9,7 +9,7 @@ We have integrated the **Google Gemini API** (specifically the `gemini-pro` mode
 - **Code Location**: `src/components/3d/AIAssistantOverlay.tsx` and `src/services/GeminiService.ts`.
 
 ## 2. MediaPipe (Hand Tracking)
-We utilize **Google MediaPipe** for advanced hand tracking and gesture recognition.
+We utilize **Google MediaPipe** for advanced hand tracking and gesture recognition.a
 - **Functionality**: Enables users to interact with the 3D medical simulation (rotate, zoom, dissect) using natural hand gestures.
 - **Integration**: Uses `@mediapipe/hands` and `@mediapipe/camera_utils`.
 - **Code Location**: `src/components/3d/HandGestureController.tsx`.

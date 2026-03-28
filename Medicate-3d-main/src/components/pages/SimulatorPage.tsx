@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, ChevronLeft, ChevronRight, Layers, Eye, Activity, Play, Hand, Mic, Bot, BookOpen, Building2, Stethoscope } from 'lucide-react';
 import { Viewer } from '../3d/Viewer';
@@ -30,15 +30,20 @@ export function SimulatorPage() {
   const [handLandmarks, setHandLandmarks] = useState<NormalizedLandmark[][] | null>(null);
   const currentGesture = gestureEnabled ? (gestureControls ? 'Gesture Active' : 'Show your hand') : '';
   const [explainerOpen, setExplainerOpen] = useState(false);
+  const [isToolsOpen, setIsToolsOpen] = useState(true);
   // ── NEW: Lab mode tabs ────────────────────────────────────────────────────
   const [labMode, setLabMode] = useState<'anatomy' | 'triage'>('anatomy');
   // OR Theater environment toggle
   const [orTheaterMode, setOrTheaterMode] = useState(true);
-  // Anatomy layer system
-  const [anatomyLayer, setAnatomyLayer] = useState<'skin' | 'muscle' | 'skeleton' | 'organs'>('skin');
+  // Anatomy layer system removed
+
+  // Dissection undo/restore all refs (passed to Viewer)
+  const undoRef = useRef<(() => void) | null>(null);
+  const restoreAllRef = useRef<(() => void) | null>(null);
 
   const organs = [
     { id: 'full_body', name: 'Full Anatomy', category: 'General' },
+    { id: 'heart', name: 'Heart', category: 'Cardiovascular' },
     { id: 'brain', name: 'Brain', category: 'Nervous' },
     { id: 'lungs', name: 'Lungs', category: 'Respiratory' },
     { id: 'liver', name: 'Liver', category: 'Digestive' },
@@ -143,24 +148,7 @@ export function SimulatorPage() {
           >
             <div className="p-6 border-b border-border bg-[#00A896]/5">
               <h3 className="mb-4 text-xl font-bold bg-gradient-to-r from-[#00A896] to-[#028090] bg-clip-text text-transparent">Organ Library</h3>
-              {/* Anatomy Layer Toggle */}
-              <div className="mb-4">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Anatomy Layer</p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(['skin', 'muscle', 'skeleton', 'organs'] as const).map(layer => (
-                    <button
-                      key={layer}
-                      onClick={() => setAnatomyLayer(layer)}
-                      className={`py-1.5 px-2 rounded-lg text-[11px] font-bold capitalize transition-all border ${anatomyLayer === layer
-                        ? 'bg-[#00A896] text-white border-[#00A896]'
-                        : 'bg-background border-border/50 text-muted-foreground hover:border-[#00A896]/40 hover:text-[#00A896]'
-                        }`}
-                    >
-                      {layer === 'skin' ? '🫶' : layer === 'muscle' ? '💪' : layer === 'skeleton' ? '🦴' : '🫀'} {layer}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* Anatomy Layer Toggle Removed */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 transition-colors group-hover:text-[#00A896]" size={18} />
                 <input
@@ -340,6 +328,8 @@ export function SimulatorPage() {
             onSelectObject={handleSelectObject}
             orTheater={orTheaterMode}
             handLandmarks={handLandmarks}
+            onUndoRef={undoRef}
+            onRestoreAllRef={restoreAllRef}
           />
 
           {/* New Controllers */}
@@ -407,45 +397,71 @@ export function SimulatorPage() {
             currentGesture={currentGesture}
           />
 
-          {/* Floating Controls */}
-          {(mode === 'dissection' || selectedTool !== 'None') && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="absolute left-10 bottom-10 bg-black/60 backdrop-blur-md border border-white/10 rounded-2xl p-4 space-y-3 z-30"
-            >
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-bold text-white">Surgical Tools</h4>
-                <div className="text-[10px] text-white/50 bg-white/10 px-2 py-0.5 rounded">
-                  Voice: "Select Scalpel"
+          {/* Floating Surgical Tools Panel - ONLY visible in dissect mode on the right side */}
+          {mode === 'dissection' && (
+            <div className="absolute right-4 top-20 z-[100] flex flex-col items-end pointer-events-auto">
+              <button
+                onClick={() => setIsToolsOpen(!isToolsOpen)}
+                className="mb-2 px-4 py-2 bg-black/80 backdrop-blur-md border border-[#00A896]/40 rounded-xl text-white text-sm font-bold shadow-xl flex items-center gap-2 hover:bg-black/90 transition-colors ring-1 ring-[#00A896]/20"
+              >
+                🛠️ Surgical Tools {isToolsOpen ? '▲' : '▼'}
+              </button>
+
+              {isToolsOpen && (
+                <div className="bg-black/85 backdrop-blur-md border border-white/10 rounded-2xl p-4 shadow-2xl w-44">
+                  <div className="text-[10px] text-white/50 bg-white/5 px-2 py-1 rounded text-center mb-3">
+                    Voice: "Select Scalpel"
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {[
+                      { name: 'Scalpel', icon: '🔪', desc: 'Cut tissue' },
+                      { name: 'Forceps', icon: '🥢', desc: 'Grip & drag' },
+                      { name: 'Scissors', icon: '✂️', desc: 'Snip layers' },
+                      { name: 'Retractor', icon: '🔧', desc: 'Pull apart' },
+                      { name: 'Cautery', icon: '🔥', desc: 'Cauterize' }
+                    ].map((tool) => (
+                      <button
+                        key={tool.name}
+                        onClick={() => setSelectedTool(tool.name)}
+                        className={`flex items-center gap-3 w-full h-11 px-3 rounded-xl transition-all text-sm font-semibold border ${
+                          selectedTool === tool.name
+                            ? 'bg-[#00A896] border-[#00A896] text-white shadow-lg shadow-[#00A896]/20'
+                            : 'bg-white/5 border-white/10 hover:bg-white/15 text-white/80'
+                        }`}
+                      >
+                        <span className="text-lg">{tool.icon}</span>
+                        <div className="flex flex-col items-start">
+                          <span className="leading-tight text-xs">{tool.name}</span>
+                          <span className={`text-[9px] leading-tight ${selectedTool === tool.name ? 'text-white/70' : 'text-white/40'}`}>{tool.desc}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Incision Depth */}
+                  <div className="mt-3 pt-3 border-t border-white/10">
+                    <label className="text-[10px] font-bold text-white/50 block text-center mb-1">Incision Depth</label>
+                    <input type="range" className="w-full accent-[#00A896]" min="0" max="100" />
+                  </div>
+
+                  {/* Undo / Restore All - only in dissection mode */}
+                  <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-white/10">
+                    <button
+                      onClick={() => undoRef.current?.()}
+                      className="w-full py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/20 transition-colors"
+                    >
+                      ↩️ Undo Last
+                    </button>
+                    <button
+                      onClick={() => restoreAllRef.current?.()}
+                      className="w-full py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-bold hover:bg-red-500/20 transition-colors"
+                    >
+                      🔄 Restore All
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-2">
-                {[
-                  { name: 'Scalpel', icon: '🔪' },
-                  { name: 'Forceps', icon: '🥢' },
-                  { name: 'Scissors', icon: '✂️' },
-                  { name: 'Retractor', icon: '🔧' },
-                  { name: 'Cautery', icon: '🔥' }
-                ].map((tool) => (
-                  <button
-                    key={tool.name}
-                    onClick={() => setSelectedTool(tool.name)}
-                    className={`flex flex-col items-center justify-center w-16 h-16 rounded-xl transition-all text-xs gap-1 border border-white/10 ${selectedTool === tool.name
-                      ? 'bg-[#00A896] text-white shadow-lg scale-105'
-                      : 'bg-white/5 hover:bg-white/10'
-                      }`}
-                  >
-                    <span className="text-xl">{tool.icon}</span>
-                    {tool.name}
-                  </button>
-                ))}
-              </div>
-              <div className="space-y-2 pt-2 border-t border-white/10">
-                <label className="text-xs text-white/70">Incision Depth</label>
-                <input type="range" className="w-full accent-[#00A896]" min="0" max="100" />
-              </div>
-            </motion.div>
+              )}
+            </div>
           )}
 
           {mode === 'pathology' && (
