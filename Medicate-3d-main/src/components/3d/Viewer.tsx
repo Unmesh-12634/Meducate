@@ -42,15 +42,15 @@ const MODELS: Record<string, { path: string; scale: THREE.Vector3; position: THR
     rotation: new THREE.Euler(0, 0, 0) // Reset rotation to upright
   },
   brain: {
-    path: '/brain.glb',
-    scale: new THREE.Vector3(0.1, 0.1, 0.1),
+    path: '/newbrain.glb',
+    scale: new THREE.Vector3(25, 25, 25),
     position: new THREE.Vector3(0, 0, 0),
     rotation: new THREE.Euler(0, -Math.PI / 2, 0)
   },
   full_body: {
-    path: '/full_body.glb',
-    scale: new THREE.Vector3(1, 1, 1), // Assuming scale is near 1 for exported glb
-    position: new THREE.Vector3(0, -10, 0),
+    path: '/models/lungs.glb',
+    scale: new THREE.Vector3(50, 50, 50),
+    position: new THREE.Vector3(10, 10, 10),
     rotation: new THREE.Euler(0, 0, 0)
   },
 };
@@ -169,33 +169,95 @@ export function Viewer({
     const H = canvas.height;
 
     handLandmarks.forEach(landmarks => {
-      // Draw glowing connectors
       ctx.save();
-      ctx.shadowBlur = 18;
-      ctx.shadowColor = '#00FFE0';
-      ctx.strokeStyle = '#00A896';
-      ctx.lineWidth = 3;
-      ctx.lineCap = 'round';
 
+      // Shadow for depth
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = 'rgba(0,0,0,0.4)';
+      ctx.shadowOffsetX = 5;
+      ctx.shadowOffsetY = 10;
+
+      const skinColor = '#F2C299'; // Base skin tone
+      const shadowSkinColor = '#D2A177'; // Darker for depth
+
+      // 1. Draw Palm as a filled polygon
+      ctx.beginPath();
+      const palmIndices = [0, 1, 5, 9, 13, 17];
+      palmIndices.forEach((idx, i) => {
+        const x = (1 - landmarks[idx].x) * W;
+        const y = landmarks[idx].y * H;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+
+      // Palm gradient for 3D effect
+      ctx.fillStyle = skinColor;
+      ctx.fill();
+
+      // Outline palm slightly for depth
+      ctx.strokeStyle = shadowSkinColor;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      // 2. Draw thick lines for fingers
+      ctx.strokeStyle = skinColor;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // Drawing connections with variable thickness
       HAND_CONNECTIONS.forEach(([a, b]) => {
+        // Skip palm connection lines as we already filled the palm
+        const isPalmConnection = palmIndices.includes(a) && palmIndices.includes(b);
+        if (isPalmConnection) return;
+
         const la = landmarks[a];
         const lb = landmarks[b];
-        // Mirror X because webcam is flipped
+
         ctx.beginPath();
         ctx.moveTo((1 - la.x) * W, la.y * H);
         ctx.lineTo((1 - lb.x) * W, lb.y * H);
+
+        // Thicker near palm, thinner at tips
+        let thickness = 28;
+        if (a > 16 || b > 16) thickness = 18; // pinky
+        if (a > 12 && a <= 16) thickness = 20; // ring
+        if (a > 8 && a <= 12) thickness = 22; // middle
+        if (a > 4 && a <= 8) thickness = 22; // index
+        if (a <= 4) thickness = 26; // thumb
+        if (b % 4 === 0) thickness -= 4; // Tips are slightly narrower
+
+        ctx.lineWidth = thickness;
+        ctx.stroke();
+
+        // Add a slight dark inner stroke to simulate joint wrinkles/depth
+        ctx.lineWidth = thickness * 0.8;
+        ctx.strokeStyle = '#FADBB8'; // highlight
+        ctx.stroke();
+        ctx.lineWidth = thickness * 0.6;
+        ctx.strokeStyle = skinColor;
         ctx.stroke();
       });
 
-      // Draw landmark dots
-      ctx.shadowBlur = 12;
-      ctx.shadowColor = '#00FFE0';
-      ctx.fillStyle = '#00FFE0';
+      // 3. Draw rounded joints (knuckles & tips)
+      ctx.shadowColor = 'transparent'; // Remove shadow for flat joints over fingers
+      ctx.fillStyle = shadowSkinColor;
       landmarks.forEach((lm, i) => {
-        const r = i === 0 ? 7 : (i % 4 === 0 ? 5 : 3.5); // wrist bigger, tips medium
-        ctx.beginPath();
-        ctx.arc((1 - lm.x) * W, lm.y * H, r, 0, Math.PI * 2);
-        ctx.fill();
+        // Draw fingernails on tips
+        if (i === 4 || i === 8 || i === 12 || i === 16 || i === 20) {
+          ctx.fillStyle = '#FFEBE0'; // Nail color
+          ctx.beginPath();
+          const r = i === 4 ? 9 : 7; // Thumb nail is bigger
+          ctx.arc((1 - lm.x) * W, lm.y * H, r, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (i !== 0) { // joints
+          ctx.fillStyle = shadowSkinColor;
+          ctx.globalAlpha = 0.3;
+          ctx.beginPath();
+          ctx.arc((1 - lm.x) * W, lm.y * H, 8, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1.0;
+        }
       });
 
       ctx.restore();
@@ -276,27 +338,74 @@ export function Viewer({
     toolsGroup.visible = false;
     const toolMeshes: Record<string, THREE.Object3D> = {};
 
-    const createTool = (geo: THREE.BufferGeometry, color: number) => {
-      const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.8, roughness: 0.2 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.rotation.x = Math.PI / 2;
-      toolsGroup.add(mesh);
-      return mesh;
+    const createRealTool = (type: string) => {
+      const toolGroup = new THREE.Group();
+      const metallicMat = new THREE.MeshStandardMaterial({ color: 0xe0e0e0, metalness: 0.9, roughness: 0.15 });
+
+      if (type === 'Scalpel') {
+        const handle = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.05, 2), metallicMat);
+        handle.position.z = -0.5;
+        const blade = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.6, 4), metallicMat);
+        blade.rotation.x = -Math.PI / 2;
+        blade.scale.z = 0.2; // flatten it
+        blade.position.z = 0.8;
+        toolGroup.add(handle, blade);
+      } else if (type === 'Forceps') {
+        const prongGeo = new THREE.BoxGeometry(0.08, 0.05, 2.5);
+        const p1 = new THREE.Mesh(prongGeo, metallicMat);
+        p1.position.x = 0.1;
+        p1.rotation.y = 0.05;
+        const p2 = new THREE.Mesh(prongGeo, metallicMat);
+        p2.position.x = -0.1;
+        p2.rotation.y = -0.05;
+        toolGroup.add(p1, p2);
+      } else if (type === 'Scissors') {
+        const h1 = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.05, 16, 50), metallicMat);
+        h1.position.set(0.2, 0, -1);
+        const h2 = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.05, 16, 50), metallicMat);
+        h2.position.set(-0.2, 0, -1);
+        const b1 = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 2), metallicMat);
+        b1.position.set(0.05, 0, 0.2);
+        b1.rotation.y = -0.05;
+        const b2 = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 2), metallicMat);
+        b2.position.set(-0.05, 0, 0.2);
+        b2.rotation.y = 0.05;
+        const pivot = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.1), new THREE.MeshStandardMaterial({ color: 0x555555 }));
+        pivot.position.set(0, 0, -0.2);
+        toolGroup.add(h1, h2, b1, b2, pivot);
+      } else if (type === 'Retractor') {
+        const handle = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, 2), metallicMat);
+        handle.position.z = -0.5;
+        const hook = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.08, 16, 50, Math.PI), metallicMat);
+        hook.position.set(0, 0, 0.6);
+        hook.rotation.x = Math.PI / 2;
+        const bend = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.3, 0.08), metallicMat);
+        bend.position.set(0, -0.1, 0.85);
+        toolGroup.add(handle, hook, bend);
+      } else if (type === 'Cautery') {
+        const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.5), new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.1, roughness: 0.8 }));
+        handle.rotation.x = Math.PI / 2;
+        handle.position.z = -0.5;
+        const tipGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.8);
+        tipGeo.rotateX(Math.PI / 2);
+        const tip = new THREE.Mesh(tipGeo, metallicMat);
+        tip.position.z = 1.0;
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.08), new THREE.MeshBasicMaterial({ color: 0xff3300 }));
+        head.position.set(0, 0, 1.4);
+        toolGroup.add(handle, tip, head);
+      }
+
+      // Default orientation pointing slightly down-forward
+      toolGroup.rotation.x = Math.PI / 6;
+      toolsGroup.add(toolGroup);
+      return toolGroup;
     };
 
-    toolMeshes['Scalpel'] = createTool(new THREE.CylinderGeometry(0.05, 0.05, 3), 0xcccccc);
-    toolMeshes['Forceps'] = createTool(new THREE.BoxGeometry(0.2, 0.2, 4), 0xaaaaaa);
-    toolMeshes['Scissors'] = createTool(new THREE.BoxGeometry(0.4, 0.1, 3), 0xdddddd);
-    toolMeshes['Retractor'] = createTool(new THREE.CylinderGeometry(0.15, 0.15, 4), 0xeeeeee);
-    const cauteryGeo = new THREE.CylinderGeometry(0.15, 0.15, 3);
-    const cauteryMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
-    const cautery = new THREE.Mesh(cauteryGeo, cauteryMat);
-    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-    tip.position.y = 1.5;
-    cautery.add(tip);
-    cautery.rotation.x = Math.PI / 2;
-    toolsGroup.add(cautery);
-    toolMeshes['Cautery'] = cautery;
+    toolMeshes['Scalpel'] = createRealTool('Scalpel');
+    toolMeshes['Forceps'] = createRealTool('Forceps');
+    toolMeshes['Scissors'] = createRealTool('Scissors');
+    toolMeshes['Retractor'] = createRealTool('Retractor');
+    toolMeshes['Cautery'] = createRealTool('Cautery');
 
 
     // PARTICLES (For Cut Effect)
@@ -393,6 +502,10 @@ export function Viewer({
       animateRetract();
     };
 
+    // MOUSE POINTER FOR DISSECTION ACTIONS
+    const mousePosRef = { current: new THREE.Vector2(0, 0) };
+    const isMouseActionRef = { current: false };
+
     // MOUSE / TOUCH ROTATION — works in every mode, interrupts auto-rotation
     const isDraggingRef = { current: false };
     const userInterruptedRef = { current: false };
@@ -402,8 +515,26 @@ export function Viewer({
     let lastDelta = { x: 0, y: 0 };
 
     const onPointerDown = (e: PointerEvent) => {
+      // Always update mouse pos relative to canvas, used for tool pointer
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        mousePosRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mousePosRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      }
+
       // Only accept left mouse button or single touch
       if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+      // Prevent UI clicks from triggering 3D actions
+      if ((e.target as Element).tagName.toUpperCase() !== 'CANVAS') return;
+
+      const { mode, gestureEnabled } = stateRef.current;
+      // Use tool via mouse click if in dissection mode & gestures disabled
+      if (mode === 'dissection' && !gestureEnabled) {
+        isMouseActionRef.current = true;
+        return; // Don't trigger scene rotation while using tools
+      }
+
       isDraggingRef.current = true;
       userInterruptedRef.current = true;
       inertiaRef.x = 0;
@@ -413,6 +544,7 @@ export function Viewer({
     };
 
     const onPointerUp = () => {
+      isMouseActionRef.current = false;
       if (!isDraggingRef.current) return;
       isDraggingRef.current = false;
       // Give inertia from last delta
@@ -427,6 +559,13 @@ export function Viewer({
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      // Always update mouse pos relative to canvas, used for tool pointer
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        mousePosRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mousePosRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      }
+
       if (!isDraggingRef.current) return;
       const deltaX = e.clientX - prevPos.x;
       const deltaY = e.clientY - prevPos.y;
@@ -452,7 +591,7 @@ export function Viewer({
     const animate = () => {
       animationFrameId.current = requestAnimationFrame(animate);
 
-      const { gestureEnabled, gestureControls, mode, selectedOrgan } = stateRef.current;
+      const { gestureEnabled, gestureControls, mode, selectedOrgan, selectedTool } = stateRef.current;
 
       // 1. Auto Rotate (Normal Mode only, not while user is controlling)
       const isUserControlling = isDraggingRef.current || userInterruptedRef.current;
@@ -481,7 +620,7 @@ export function Viewer({
 
         const deltaX = gestureControls.rotationX - lastGestureX;
         const deltaY = gestureControls.rotationY - lastGestureY;
-        
+
         lastGestureX = gestureControls.rotationX;
         lastGestureY = gestureControls.rotationY;
 
@@ -492,18 +631,48 @@ export function Viewer({
         const s = gestureControls.zoom;
         gestureGroupRef.current.scale.set(s, s, s);
 
-        // --- HAND POINTER RAYCASTING ---
-        if (gestureControls.pointer && cameraRef.current && gestureGroupRef.current) {
-          const p = gestureControls.pointer;
-          raycasterRef.current.setFromCamera(new THREE.Vector2(p.x, p.y), cameraRef.current);
+        // --- HAND / MOUSE POINTER RAYCASTING ---
+        // Raycast logic can be triggered by Gesture OR regular Mouse pointer in dissection mode
+        const useMousePointer = (!gestureEnabled && mode === 'dissection');
+        const hasPointer = (gestureEnabled && gestureControls && gestureControls.pointer) || useMousePointer;
 
-          const wasPinching = isPinchingRef.current;
-          isPinchingRef.current = p.isPinching;
-          const { selectedTool, mode } = stateRef.current;
+        if (hasPointer && cameraRef.current && gestureGroupRef.current) {
+
+          let pX = 0, pY = 0;
+          let actionActive = false;
+          let wasActionActive = false;
+
+          if (gestureEnabled && gestureControls && gestureControls.pointer) {
+            const p = gestureControls.pointer;
+            pX = p.x;
+            pY = p.y;
+            if (mode === 'normal') {
+              actionActive = p.isPinching;
+            } else {
+              // Each tool has its own specific gesture mapping
+              const t = stateRef.current.selectedTool;
+              if (t === 'Forceps') actionActive = p.isPinching;
+              else if (t === 'Scalpel') actionActive = p.isPencilGrip;
+              else if (t === 'Scissors') actionActive = p.isSnipping;
+              else if (t === 'Retractor') actionActive = p.isClawGrip;
+              else if (t === 'Cautery') actionActive = p.isTriggerGrip;
+              else actionActive = p.isPointing || p.isPinching;
+            }
+            wasActionActive = isPinchingRef.current;
+            isPinchingRef.current = actionActive;
+          } else if (useMousePointer) {
+            pX = mousePosRef.current.x;
+            pY = mousePosRef.current.y;
+            actionActive = isMouseActionRef.current;
+            wasActionActive = isPinchingRef.current;
+            isPinchingRef.current = actionActive;
+          }
+
+          raycasterRef.current.setFromCamera(new THREE.Vector2(pX, pY), cameraRef.current);
 
           // Dragging Logic (Forceps)
           if (mode === 'dissection' && selectedTool === 'Forceps') {
-            if (p.isPinching && draggedObjectRef.current) {
+            if (actionActive && draggedObjectRef.current) {
               // We are currently holding an object, move it
               raycasterRef.current.ray.intersectPlane(dragPlaneRef.current, dragOffsetRef.current);
               draggedObjectRef.current.position.copy(dragOffsetRef.current);
@@ -512,7 +681,7 @@ export function Viewer({
               if (draggedObjectRef.current.material) {
                 (draggedObjectRef.current.material as THREE.MeshStandardMaterial).color.setHex(0xffff00);
               }
-            } else if (!p.isPinching && draggedObjectRef.current) {
+            } else if (!actionActive && draggedObjectRef.current) {
               // We just let go
               if (draggedObjectRef.current.material && draggedObjectRef.current.userData.originalColor) {
                 (draggedObjectRef.current.material as THREE.MeshStandardMaterial).color.setHex(draggedObjectRef.current.userData.originalColor);
@@ -538,7 +707,7 @@ export function Viewer({
               const object = hit.object as THREE.Mesh;
 
               // Hover effect
-              if (p.isPointing || p.isPinching || p.isPencilGrip || p.isSnipping || p.isClawGrip || p.isTriggerGrip) {
+              if (actionActive || (gestureEnabled && gestureControls?.pointer?.isPointing)) {
                 if (object.material && !object.userData.isHovered) {
                   const originalColor = (object.material as THREE.MeshStandardMaterial).color.getHex();
                   object.userData.originalColor = originalColor;
@@ -564,14 +733,14 @@ export function Viewer({
               };
 
               if (!object.userData.isSelected) {
-                if (mode === 'normal' && p.isPinching && !wasPinching) {
+                if (mode === 'normal' && actionActive && !wasActionActive) {
                   object.userData.isSelected = true;
                   const name = object.name.replace(/_/g, ' ');
                   if (stateRef.current.onSelectObject) stateRef.current.onSelectObject(name, captureScreenshot());
                 } else if (mode === 'dissection') {
                   const name = object.name.replace(/_/g, ' ');
 
-                  if (selectedTool === 'Forceps' && p.isPinching && !wasPinching) {
+                  if (selectedTool === 'Forceps' && actionActive && !wasActionActive) {
                     object.userData.isSelected = true;
                     // Start dragging
                     draggedObjectRef.current = object;
@@ -582,20 +751,17 @@ export function Viewer({
                     if (object.material && object.userData.originalColor) {
                       (object.material as THREE.MeshStandardMaterial).color.setHex(0xffff00);
                     }
-                  } else if (selectedTool === 'Scalpel' && p.isPencilGrip) {
-                    // Scalpel action triggers continuously while pencil grip holds over object
-                    // We debounce it so it doesn't repeatedly trigger instantly on same object
+                  } else if (selectedTool === 'Scalpel' && actionActive) {
+                    // Scalpel action triggers continuously
                     object.userData.isSelected = true;
                     performCut(object, hit.point);
-                    if (stateRef.current.onSelectObject) stateRef.current.onSelectObject("Scalpel cut made on " + name, captureScreenshot());
-                  } else if (selectedTool === 'Scissors' && p.isSnipping) {
+                  } else if (selectedTool === 'Scissors' && actionActive && !wasActionActive) {
                     object.userData.isSelected = true;
                     object.scale.multiplyScalar(0.7); // Simulate cutting tissue away
-                    if (stateRef.current.onSelectObject) stateRef.current.onSelectObject("Scissors snip made on " + name, captureScreenshot());
-                  } else if (selectedTool === 'Retractor' && p.isClawGrip) {
+                  } else if (selectedTool === 'Retractor' && actionActive && !wasActionActive) {
                     object.userData.isSelected = true;
                     performRetract(object);
-                  } else if (selectedTool === 'Cautery' && p.isTriggerGrip) {
+                  } else if (selectedTool === 'Cautery' && actionActive) {
                     object.userData.isSelected = true;
                     // Trigger burn particle effect
                     if (particlesRef.current) {
@@ -609,7 +775,6 @@ export function Viewer({
                     if (object.material && object.userData.originalColor) {
                       (object.material as THREE.MeshStandardMaterial).color.setHex(0x330000); // burned tissue
                     }
-                    if (stateRef.current.onSelectObject) stateRef.current.onSelectObject("Cauterized " + name, captureScreenshot());
                   }
                 }
 
@@ -641,20 +806,44 @@ export function Viewer({
           toolMeshes[key].visible = (key === selectedTool);
         });
 
-        // Update position to pointer if gesture is enabled, else to center
-        if (gestureEnabled && gestureControls && gestureControls.pointer && cameraRef.current) {
+        // Update position to pointer if gesture is enabled or mouse is used
+        const useMousePointer = (!gestureEnabled && mode === 'dissection');
+        const hasPointer = (gestureEnabled && gestureControls && gestureControls.pointer) || useMousePointer;
+
+        if (hasPointer && cameraRef.current) {
           toolsGroup.visible = true;
-          const p = gestureControls.pointer;
-          raycasterRef.current.setFromCamera(new THREE.Vector2(p.x, p.y), cameraRef.current);
-          const toolPos = cameraRef.current.position.clone().add(raycasterRef.current.ray.direction.multiplyScalar(20));
+
+          let pX = 0, pY = 0;
+          let actionActive = false;
+          if (gestureEnabled && gestureControls?.pointer) {
+            const p = gestureControls.pointer;
+            pX = p.x; pY = p.y;
+            // Match the actionActive logic
+            const t = selectedTool;
+            if (t === 'Forceps') actionActive = p.isPinching;
+            else if (t === 'Scalpel') actionActive = p.isPencilGrip;
+            else if (t === 'Scissors') actionActive = p.isSnipping;
+            else if (t === 'Retractor') actionActive = p.isClawGrip;
+            else if (t === 'Cautery') actionActive = p.isTriggerGrip;
+            else actionActive = p.isPointing || p.isPinching;
+          } else {
+            pX = mousePosRef.current.x;
+            pY = mousePosRef.current.y;
+            actionActive = isMouseActionRef.current;
+          }
+
+          raycasterRef.current.setFromCamera(new THREE.Vector2(pX, pY), cameraRef.current);
+          const toolPos = cameraRef.current.position.clone().add(raycasterRef.current.ray.direction.clone().multiplyScalar(20));
           toolsGroup.position.copy(toolPos);
-          toolsGroup.lookAt(cameraRef.current.position);
-          
-          if (p.isPinching || p.isPencilGrip || p.isSnipping || p.isClawGrip || p.isTriggerGrip) {
-             toolsGroup.position.add(raycasterRef.current.ray.direction.multiplyScalar(2)); // slight poke forward
+          // Orient tool local +Z backwards along the ray direction (into the scene)
+          toolsGroup.lookAt(toolPos.clone().add(raycasterRef.current.ray.direction));
+
+          // Slight poke forward if active
+          if (actionActive) {
+            toolsGroup.position.add(raycasterRef.current.ray.direction.clone().multiplyScalar(1));
           }
         } else {
-          // Hide if gesture is not active
+          // Hide if no pointer available
           toolsGroup.visible = false;
         }
       } else {

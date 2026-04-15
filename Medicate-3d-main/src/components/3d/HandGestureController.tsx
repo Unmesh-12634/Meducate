@@ -35,213 +35,7 @@ interface HandGestureControllerProps {
   onHandLandmarks?: (landmarks: NormalizedLandmark[][] | null) => void;
 }
 
-// ── Gesture tutorial data ──────────────────────────────────────────────────
-const TUTORIAL_GESTURES = [
-  {
-    name: 'Open Palm → Rotate',
-    emoji: '🖐️',
-    description: 'Spread all fingers and move your hand to rotate the model',
-    color: '#00A896',
-    // finger extended states [thumb, index, middle, ring, pinky]
-    fingers: [true, true, true, true, true],
-  },
-  {
-    name: 'Pinch → Zoom',
-    emoji: '🤏',
-    description: 'Touch thumb and index finger together to zoom in/out',
-    color: '#FFD166',
-    fingers: [false, false, false, false, false], // pinch special
-  },
-  {
-    name: 'Peace Sign → Pathology',
-    emoji: '✌️',
-    description: 'Raise index and middle fingers for Pathology mode',
-    color: '#EF476F',
-    fingers: [false, true, true, false, false],
-  },
-  {
-    name: 'Fist → Normal Mode',
-    emoji: '✊',
-    description: 'Close your fist to return to Normal viewing mode',
-    color: '#06D6A0',
-    fingers: [false, false, false, false, false],
-  },
-];
 
-// Draws an animated illustrative hand based on finger states
-function TutorialHandSVG({
-  fingers,
-  color,
-  isPinch,
-  tick,
-}: {
-  fingers: boolean[];
-  color: string;
-  isPinch?: boolean;
-  tick: number;
-}) {
-  const pulse = 1 + Math.sin(tick * 0.08) * 0.03;
-  const pinchOffset = isPinch ? 22 : 0;
-
-  // Landmark positions for a stylised flat hand (palm up, fingers pointing up)
-  const palmCx = 60;
-  const palmCy = 110;
-
-  // [base_x, tip_y_extended, tip_y_curled]
-  const fingerDefs = [
-    { bx: 28, baseY: 85, extY: 45, curlY: 82 },  // thumb (offset style)
-    { bx: 35, baseY: 80, extY: 20, curlY: 72 },  // index
-    { bx: 52, baseY: 78, extY: 15, curlY: 70 },  // middle
-    { bx: 68, baseY: 80, extY: 20, curlY: 72 },  // ring
-    { bx: 84, baseY: 85, extY: 30, curlY: 78 },  // pinky
-  ];
-
-  return (
-    <svg width="120" height="160" viewBox="0 0 120 160" style={{ transform: `scale(${pulse})`, transformOrigin: 'center', filter: `drop-shadow(0 0 8px ${color}88)` }}>
-      {/* Palm */}
-      <ellipse cx={palmCx} cy={palmCy} rx={38} ry={32} fill={`${color}22`} stroke={color} strokeWidth="2" />
-
-      {/* Fingers */}
-      {fingerDefs.map((f, i) => {
-        const isThumb = i === 0;
-        const ext = isPinch ? (i < 2) : fingers[i];
-        const tipY = ext ? f.extY : f.curlY;
-
-        // Pinch: draw index curled toward thumb
-        const adjustedX = isThumb && isPinch ? f.bx + pinchOffset : f.bx;
-
-        const midY = (f.baseY + tipY) / 2;
-
-        return (
-          <g key={i}>
-            {/* Finger line */}
-            <path
-              d={`M ${adjustedX} ${f.baseY} Q ${adjustedX + (isThumb ? 4 : 0)} ${midY} ${adjustedX} ${tipY}`}
-              stroke={color}
-              strokeWidth={ext ? 5 : 4}
-              strokeLinecap="round"
-              fill="none"
-              opacity={ext ? 1 : 0.5}
-            />
-            {/* Tip dot */}
-            <circle cx={adjustedX} cy={tipY} r={isPinch && i < 2 ? 6 : 4} fill={color} opacity={ext ? 1 : 0.4} />
-          </g>
-        );
-      })}
-
-      {/* Wrist */}
-      <rect x={palmCx - 18} y={palmCy + 22} width={36} height={18} rx={8} fill={`${color}33`} stroke={color} strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-// ── Tutorial Modal ──────────────────────────────────────────────────────────
-function GestureTutorialModal({ onDismiss }: { onDismiss: () => void }) {
-  const [step, setStep] = useState(0);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => setTick(t => t + 1), 50);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Auto-advance every 2.5 seconds
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (step < TUTORIAL_GESTURES.length - 1) {
-        setStep(s => s + 1);
-      } else {
-        onDismiss();
-      }
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, [step, onDismiss]);
-
-  const current = TUTORIAL_GESTURES[step];
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)' }}
-      onClick={onDismiss}
-    >
-      <motion.div
-        initial={{ scale: 0.8, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.8, opacity: 0 }}
-        onClick={e => e.stopPropagation()}
-        className="relative max-w-md w-full mx-4 rounded-3xl overflow-hidden"
-        style={{ border: `2px solid ${current.color}44`, background: 'rgba(10,15,20,0.98)' }}
-      >
-        {/* Header */}
-        <div className="px-6 pt-6 pb-2 text-center">
-          <p className="text-xs uppercase tracking-widest mb-1" style={{ color: current.color }}>
-            Gesture {step + 1} of {TUTORIAL_GESTURES.length}
-          </p>
-          <h2 className="text-2xl font-bold text-white">{current.emoji} {current.name}</h2>
-        </div>
-
-        {/* Animated Hand */}
-        <div className="flex items-center justify-center py-4">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={step}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3 }}
-            >
-              <TutorialHandSVG
-                fingers={current.fingers}
-                color={current.color}
-                isPinch={step === 1}
-                tick={tick}
-              />
-            </motion.div>
-          </AnimatePresence>
-        </div>
-
-        {/* Description */}
-        <div className="px-6 pb-4 text-center">
-          <p className="text-sm text-white/70">{current.description}</p>
-        </div>
-
-        {/* Progress dots */}
-        <div className="flex items-center justify-center gap-2 pb-5">
-          {TUTORIAL_GESTURES.map((_, i) => (
-            <motion.div
-              key={i}
-              animate={{ scale: i === step ? 1.4 : 1, opacity: i === step ? 1 : 0.3 }}
-              className="w-2 h-2 rounded-full"
-              style={{ background: current.color }}
-            />
-          ))}
-        </div>
-
-        {/* Progress bar */}
-        <motion.div
-          className="absolute bottom-0 left-0 h-1"
-          style={{ background: current.color }}
-          initial={{ width: '0%' }}
-          animate={{ width: '100%' }}
-          transition={{ duration: 2.5, ease: 'linear' }}
-          key={step}
-        />
-
-        {/* Skip button */}
-        <button
-          onClick={onDismiss}
-          className="absolute top-4 right-4 text-white/40 hover:text-white/80 text-xs transition-colors"
-        >
-          Skip ✕
-        </button>
-      </motion.div>
-    </motion.div>
-  );
-}
 
 // ── Smoothing constant: 0=no smoothing, 1=never moves ─────────────────────
 const LERP_ALPHA = 0.35;
@@ -273,8 +67,6 @@ export function HandGestureController({
   const [gestureMode, setGestureMode] = useState<'normal' | 'dissection' | 'pathology'>('normal');
   const [currentGesture, setCurrentGesture] = useState<string>('Show your hand');
   const [error, setError] = useState<string | null>(null);
-  const [showTutorial, setShowTutorial] = useState(false);
-  const wasEnabledRef = useRef(false);
 
   const rotationRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const zoomRef = useRef<number>(1);
@@ -295,14 +87,6 @@ export function HandGestureController({
 
   // Per-hand smoothed landmark buffers
   const smoothedLandmarksRef = useRef<NormalizedLandmark[][] | null>(null);
-
-  // Show tutorial when gesture mode is first enabled
-  useEffect(() => {
-    if (enabled && !wasEnabledRef.current) {
-      setShowTutorial(true);
-    }
-    wasEnabledRef.current = enabled;
-  }, [enabled]);
 
   // Keep gestureMode ref in sync for use inside onResults closure
   useEffect(() => {
@@ -631,13 +415,6 @@ export function HandGestureController({
     <AnimatePresence>
       {enabled && (
         <>
-          {/* Tutorial overlay */}
-          <AnimatePresence>
-            {showTutorial && (
-              <GestureTutorialModal onDismiss={() => setShowTutorial(false)} />
-            )}
-          </AnimatePresence>
-
           {/* Webcam preview – bottom right corner */}
           <motion.div
             className="fixed bottom-4 right-4 z-50"
@@ -687,45 +464,7 @@ export function HandGestureController({
             </div>
           </motion.div>
 
-          {/* Gesture reference guide – top left */}
-          <motion.div
-            className="fixed top-20 left-4 z-40 w-64"
-            initial={{ opacity: 0, x: -30 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -30 }}
-          >
-            <div className="bg-background/95 backdrop-blur-sm border border-border rounded-xl p-3 shadow-xl">
-              <div className="flex items-center justify-between mb-2 pb-2 border-b border-border">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-[#00A896] rounded-full animate-pulse" />
-                  <h3 className="text-xs font-bold text-[#00A896]">Gestures Active</h3>
-                </div>
-                <button
-                  onClick={() => setShowTutorial(true)}
-                  className="text-[10px] bg-[#00A896]/10 hover:bg-[#00A896]/20 text-[#00A896] px-2 py-0.5 rounded transition-colors"
-                >
-                  Tutorial
-                </button>
-              </div>
-              <div className="space-y-1.5 text-xs">
-                {[
-                  { emoji: '🖐️', label: 'Open Palm', sub: 'Rotate model' },
-                  { emoji: '🤏', label: 'Pinch', sub: 'Zoom in/out' },
-                  { emoji: '✋', label: 'All fingers', sub: 'Dissection mode' },
-                  { emoji: '✌️', label: 'Peace sign', sub: 'Pathology mode' },
-                  { emoji: '✊', label: 'Fist', sub: 'Normal mode' },
-                ].map(g => (
-                  <div key={g.label} className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-muted/50 transition-colors">
-                    <span className="text-lg w-7 text-center">{g.emoji}</span>
-                    <div>
-                      <div className="font-semibold text-foreground">{g.label}</div>
-                      <div className="text-muted-foreground text-[10px]">{g.sub}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </motion.div>
+
         </>
       )}
     </AnimatePresence>

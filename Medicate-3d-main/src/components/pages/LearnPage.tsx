@@ -13,6 +13,10 @@ import {
   Globe,
   Shield,
   Star,
+  ArrowLeft,
+  Megaphone,
+  UserCheck,
+  Info,
 } from 'lucide-react';
 import { ImageWithFallback } from '../figma/ImageWithFallback';
 import { ProctorExam } from './ProctorExam';
@@ -21,6 +25,7 @@ export function LearnPage() {
   const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
   const [expandedWeek, setExpandedWeek] = useState<string | null>('week-1');
   const [expandedSection, setExpandedSection] = useState<string | null>('general');
+  const [expandedFolder, setExpandedFolder] = useState<string | null>(null);
   // Proctored exam state
   const [examOpen, setExamOpen] = useState<{ weekId: string; weekTitle: string } | null>(null);
   const [completedAssessments, setCompletedAssessments] = useState<Record<string, number>>({}); // weekId → score
@@ -82,7 +87,16 @@ export function LearnPage() {
           title: 'Week-1',
           locked: false,
           items: [
-            { id: 'live-1', title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', type: 'folder' },
+            { 
+              id: 'live-1', 
+              title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', 
+              type: 'folder',
+              items: [
+                { id: 'live-zoom-1', title: 'Live Lecture: ER Foundations (Zoom)', type: 'video', duration: '90 min', completed: false },
+                { id: 'recording-1', title: 'Recording: Previous Batch Session', type: 'video', duration: '85 min', completed: true },
+                { id: 'slides-1', title: 'Lecture Slides (PDF)', type: 'document', duration: '15 min', completed: true }
+              ]
+            },
             { id: 'foundations-1', title: 'Foundations of Emergency Medicine', type: 'video', duration: '45 min', completed: true },
             { id: 'assessment-1', title: 'Week 1 Assessment', type: 'quiz', duration: '30 min', completed: true },
           ],
@@ -92,7 +106,15 @@ export function LearnPage() {
           title: 'Week-2',
           locked: false,
           items: [
-            { id: 'live-2', title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', type: 'folder' },
+            { 
+              id: 'live-2', 
+              title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', 
+              type: 'folder',
+              items: [
+                { id: 'live-zoom-2', title: 'Workshop: Cardiac Emergencies', type: 'video', duration: '120 min', completed: false },
+                { id: 'resource-2', title: 'ACLS Algorithm Cheatsheet (PDF)', type: 'document', duration: '10 min', completed: false }
+              ]
+            },
             { id: 'cardiac-2', title: 'Cardiac Emergency Protocols', type: 'video', duration: '50 min', completed: true },
             { id: 'cpr-2', title: 'CPR Practical Simulation', type: 'simulation', duration: '60 min', completed: false },
             { id: 'assessment-2', title: 'Week 2 Assessment', type: 'quiz', duration: '30 min', completed: false },
@@ -103,7 +125,15 @@ export function LearnPage() {
           title: 'Week-3',
           locked: false,
           items: [
-            { id: 'live-3', title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', type: 'folder' },
+            { 
+              id: 'live-3', 
+              title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', 
+              type: 'folder',
+              items: [
+                { id: 'live-zoom-3', title: 'Live Trauma Scenario Review', type: 'video', duration: '60 min', completed: false },
+                { id: 'recording-3', title: 'Guest Lecture: Advanced Trauma', type: 'video', duration: '55 min', completed: false }
+              ]
+            },
             { id: 'trauma-3', title: 'Trauma Assessment Techniques', type: 'video', duration: '55 min', completed: false },
             { id: 'assessment-3', title: 'Week 3 Assessment', type: 'quiz', duration: '30 min', completed: false },
           ],
@@ -113,7 +143,15 @@ export function LearnPage() {
           title: 'Week-4',
           locked: false,
           items: [
-            { id: 'live-4', title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', type: 'folder' },
+            { 
+              id: 'live-4', 
+              title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', 
+              type: 'folder',
+              items: [
+                { id: 'live-zoom-4', title: 'Pediatric Case Studies Q&A', type: 'video', duration: '90 min', completed: false },
+                { id: 'resource-4', title: 'Pediatric Dosage Reference Guide', type: 'document', duration: '20 min', completed: false }
+              ]
+            },
             { id: 'pediatric-4', title: 'Pediatric Emergency Care', type: 'video', duration: '48 min', completed: false },
           ],
         },
@@ -156,7 +194,15 @@ export function LearnPage() {
           title: 'Week-1',
           locked: false,
           items: [
-            { id: 'live-1', title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', type: 'folder' },
+            { 
+              id: 'live-5', 
+              title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', 
+              type: 'folder',
+              items: [
+                { id: 'live-zoom-5', title: 'Introduction to ACLS Protocols', type: 'video', duration: '60 min', completed: true },
+                { id: 'slides-5', title: 'BLS/ACLS Guidelines 2025', type: 'document', duration: '30 min', completed: true }
+              ]
+            },
             { id: 'acls-1', title: 'Introduction to ACLS', type: 'video', duration: '40 min', completed: true },
           ],
         },
@@ -165,7 +211,15 @@ export function LearnPage() {
           title: 'Week-2',
           locked: false,
           items: [
-            { id: 'live-2', title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', type: 'folder' },
+            { 
+              id: 'live-6', 
+              title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', 
+              type: 'folder',
+              items: [
+                { id: 'live-zoom-6', title: 'ECG Rhythm Interpretation Masterclass', type: 'video', duration: '90 min', completed: false },
+                { id: 'resource-6', title: 'Rhythm Strip Practice Workbook', type: 'document', duration: '45 min', completed: false }
+              ]
+            },
             { id: 'rhythms-2', title: 'Cardiac Rhythms Recognition', type: 'video', duration: '45 min', completed: false },
           ],
         },
@@ -189,7 +243,15 @@ export function LearnPage() {
           title: 'Week-1',
           locked: false,
           items: [
-            { id: 'live-1', title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', type: 'folder' },
+            { 
+              id: 'live-7', 
+              title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', 
+              type: 'folder',
+              items: [
+                { id: 'live-zoom-7', title: 'Scrubbing & Gowning Live Demo', type: 'video', duration: '45 min', completed: true },
+                { id: 'resource-7', title: 'Surgical Instruments Glossary', type: 'document', duration: '15 min', completed: true }
+              ]
+            },
             { id: 'surgical-1', title: 'Surgical Safety and Sterile Technique', type: 'video', duration: '50 min', completed: true },
           ],
         },
@@ -212,7 +274,15 @@ export function LearnPage() {
           title: 'Week-1',
           locked: false,
           items: [
-            { id: 'live-1', title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', type: 'folder' },
+            { 
+              id: 'live-8', 
+              title: 'LIVE SESSIONS, RECORDINGS AND RESOURCES', 
+              type: 'folder',
+              items: [
+                { id: 'live-zoom-8', title: 'Pediatric Airway Management', type: 'video', duration: '60 min', completed: false },
+                { id: 'recording-8', title: 'PALS Updates & Resources', type: 'video', duration: '40 min', completed: false }
+              ]
+            },
             { id: 'peds-1', title: 'Pediatric Assessment Triangle', type: 'video', duration: '35 min', completed: false },
           ],
         },
@@ -223,7 +293,7 @@ export function LearnPage() {
   const selectedCourseData = selectedCourse ? courses.find((c) => c.id === selectedCourse) : null;
   const selectedCourseContent = selectedCourse ? courseContent[selectedCourse] : null;
 
-  const getItemIcon = (type: string) => {
+  const getItemIcon = (type: string, title?: string) => {
     switch (type) {
       case 'video':
         return <Video size={16} className="text-[#00A896]" />;
@@ -235,6 +305,10 @@ export function LearnPage() {
         return <BookOpen size={16} className="text-muted-foreground" />;
       case 'document':
         return <FileText size={16} className="text-muted-foreground" />;
+      case 'info':
+        if (title?.toLowerCase().includes('announcement')) return <Megaphone size={16} className="text-[#EF476F]" />;
+        if (title?.toLowerCase().includes('attendance')) return <UserCheck size={16} className="text-[#00A896]" />;
+        return <Info size={16} className="text-[#00A896]" />;
       case 'ai':
         return <Globe size={16} className="text-[#00A896]" />;
       default:
@@ -257,6 +331,8 @@ export function LearnPage() {
   const handleItemClick = (item: any, week: any) => {
     if (item.type === 'quiz') {
       setExamOpen({ weekId: week.id, weekTitle: week.title });
+    } else if (item.type === 'folder') {
+      setExpandedFolder(expandedFolder === item.id ? null : item.id);
     }
   };
 
@@ -289,27 +365,31 @@ export function LearnPage() {
               >
                 {/* Course Header - Animated from Course Card */}
                 {selectedCourseData && (
-                  <motion.div
-                    layoutId={`course-${selectedCourse}`}
-                    className="p-4 border-b border-border cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={handleBackToCourses}
-                  >
+                  <div className="p-4 border-b border-border">
+                    <button
+                      onClick={handleBackToCourses}
+                      className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors mb-4"
+                    >
+                      <ArrowLeft size={14} />
+                      Back to Courses
+                    </button>
                     <ImageWithFallback
                       src={selectedCourseData.image}
                       alt={selectedCourseData.title}
-                      className="w-full h-32 object-cover rounded-xl mb-3"
+                      className="w-full h-24 object-cover rounded-xl mb-3"
                     />
-                    <h4 className="text-xs mb-1">{selectedCourseData.batch}</h4>
+                    <h3 className="font-semibold text-sm leading-tight mb-1">{selectedCourseData.title}</h3>
+                    <h4 className="text-xs text-muted-foreground mb-3 font-medium bg-muted w-fit px-2 py-0.5 rounded-md">{selectedCourseData.batch}</h4>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <div className="flex-1 bg-muted rounded-full h-2">
+                      <div className="flex-1 bg-muted rounded-full h-1.5">
                         <div
-                          className="bg-[#00A896] h-2 rounded-full transition-all"
+                          className="bg-[#00A896] h-1.5 rounded-full transition-all"
                           style={{ width: `${selectedCourseData.progress}%` }}
                         />
                       </div>
-                      <span>{selectedCourseData.progress}%</span>
+                      <span className="font-medium">{selectedCourseData.progress}%</span>
                     </div>
-                  </motion.div>
+                  </div>
                 )}
 
                 {/* Navigation Sections */}
@@ -335,9 +415,10 @@ export function LearnPage() {
                             {section.items.map((item: any) => (
                               <button
                                 key={item.id}
-                                className="w-full text-left p-2 text-sm text-foreground hover:bg-muted rounded-lg transition-colors"
+                                className="w-full text-left px-2 py-2 text-sm text-foreground hover:bg-muted rounded-lg transition-colors flex items-center gap-2"
                               >
-                                {item.title}
+                                {getItemIcon(item.type, item.title)}
+                                <span className="text-xs">{item.title}</span>
                               </button>
                             ))}
                           </motion.div>
@@ -401,33 +482,61 @@ export function LearnPage() {
                             className="ml-3 mt-2 space-y-1"
                           >
                             {week.items.map((item: any) => {
-                              const isAssessmentDone = item.type === 'quiz' && completedAssessments[week.id] !== undefined;
-                              const assessmentScore = completedAssessments[week.id];
-                              return (
-                                <button
-                                  key={item.id}
-                                  onClick={() => handleItemClick(item, week)}
-                                  className={`w-full text-left p-2 text-sm text-foreground rounded-lg transition-colors flex items-center justify-between group ${item.type === 'quiz' ? 'hover:bg-[#EF476F]/10' : 'hover:bg-background'
-                                    }`}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    {item.type === 'quiz'
-                                      ? <Shield size={14} className="text-[#EF476F]" />
-                                      : getItemIcon(item.type)}
-                                    <span className="text-xs">{item.title}</span>
-                                    {item.type === 'quiz' && !isAssessmentDone && (
-                                      <span className="text-[9px] px-1.5 py-0.5 bg-[#EF476F]/20 text-[#EF476F] rounded font-bold tracking-wider">PROCTORED</span>
-                                    )}
-                                  </div>
-                                  {isAssessmentDone ? (
-                                    <div className="flex items-center gap-1">
-                                      <Star size={12} className="text-[#FFD166]" />
-                                      <span className="text-[10px] text-[#FFD166] font-bold">{assessmentScore}%</span>
+                              const renderItem = (curItem: any, isSubItem = false) => {
+                                const isCurAssessmentDone = curItem.type === 'quiz' && completedAssessments[week.id] !== undefined;
+                                const curAssessmentScore = completedAssessments[week.id];
+                                return (
+                                  <button
+                                    key={curItem.id}
+                                    onClick={() => handleItemClick(curItem, week)}
+                                    className={`w-full text-left ${isSubItem ? 'p-2 pl-6' : 'p-2'} text-sm text-foreground rounded-lg transition-colors flex items-center justify-between group ${curItem.type === 'quiz' ? 'hover:bg-[#EF476F]/10' : 'hover:bg-background'}`}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      {curItem.type === 'quiz'
+                                        ? <Shield size={14} className="text-[#EF476F]" />
+                                        : getItemIcon(curItem.type, curItem.title)}
+                                      <span className="text-xs">{curItem.title}</span>
+                                      {curItem.type === 'quiz' && !isCurAssessmentDone && (
+                                        <span className="text-[9px] px-1.5 py-0.5 bg-[#EF476F]/20 text-[#EF476F] rounded font-bold tracking-wider">PROCTORED</span>
+                                      )}
                                     </div>
-                                  ) : item.completed ? (
-                                    <CheckCircle2 size={14} className="text-green-500" />
-                                  ) : null}
-                                </button>
+                                    <div className="flex items-center gap-2">
+                                      {isCurAssessmentDone ? (
+                                        <div className="flex items-center gap-1">
+                                          <Star size={12} className="text-[#FFD166]" />
+                                          <span className="text-[10px] text-[#FFD166] font-bold">{curAssessmentScore}%</span>
+                                        </div>
+                                      ) : curItem.completed ? (
+                                        <CheckCircle2 size={14} className="text-green-500" />
+                                      ) : null}
+                                      {curItem.type === 'folder' && (
+                                        expandedFolder === curItem.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              };
+
+                              return (
+                                <div key={item.id} className="space-y-1">
+                                  {renderItem(item)}
+                                  {item.type === 'folder' && item.items && (
+                                    <AnimatePresence>
+                                      {expandedFolder === item.id && (
+                                        <motion.div
+                                          initial={{ height: 0, opacity: 0 }}
+                                          animate={{ height: 'auto', opacity: 1 }}
+                                          exit={{ height: 0, opacity: 0 }}
+                                          className="space-y-1 overflow-hidden"
+                                        >
+                                          <div className="py-1">
+                                            {item.items.map((subItem: any) => renderItem(subItem, true))}
+                                          </div>
+                                        </motion.div>
+                                      )}
+                                    </AnimatePresence>
+                                  )}
+                                </div>
                               );
                             })}
                           </motion.div>
@@ -505,59 +614,93 @@ export function LearnPage() {
                               className="mt-4 ml-8 space-y-3"
                             >
                               {week.items.map((item: any) => {
-                                const isAssessmentDone = item.type === 'quiz' && completedAssessments[week.id] !== undefined;
-                                const assessmentScore = completedAssessments[week.id];
-                                const isQuiz = item.type === 'quiz';
-                                return (
-                                  <motion.div
-                                    key={item.id}
-                                    whileHover={{ scale: 1.01 }}
-                                    whileTap={{ scale: 0.99 }}
-                                    onClick={() => handleItemClick(item, week)}
-                                    className={`flex items-center justify-between p-4 bg-card border rounded-xl cursor-pointer group transition-all ${isQuiz
-                                      ? 'border-[#EF476F]/30 hover:border-[#EF476F] hover:bg-[#EF476F]/5'
-                                      : 'border-border hover:border-[#00A896]'
-                                      }`}
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      {isQuiz
-                                        ? <div className="w-8 h-8 rounded-lg bg-[#EF476F]/15 border border-[#EF476F]/30 flex items-center justify-center flex-shrink-0">
-                                          <Shield size={15} className="text-[#EF476F]" />
+                                const renderMainItem = (curItem: any, isSubItem = false) => {
+                                  const isAssessmentDone = curItem.type === 'quiz' && completedAssessments[week.id] !== undefined;
+                                  const assessmentScore = completedAssessments[week.id];
+                                  const isQuiz = curItem.type === 'quiz';
+                                  const isFolder = curItem.type === 'folder';
+
+                                  return (
+                                    <motion.div
+                                      key={curItem.id}
+                                      whileHover={{ scale: 1.01 }}
+                                      whileTap={{ scale: 0.99 }}
+                                      onClick={() => handleItemClick(curItem, week)}
+                                      className={`flex items-center justify-between p-4 ${isSubItem ? 'ml-8 bg-card/60' : 'bg-card'} border rounded-xl cursor-pointer group transition-all ${isQuiz
+                                        ? 'border-[#EF476F]/30 hover:border-[#EF476F] hover:bg-[#EF476F]/5'
+                                        : isFolder && expandedFolder === curItem.id
+                                        ? 'border-[#00A896]'
+                                        : 'border-border hover:border-[#00A896]'
+                                        }`}
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        {isQuiz
+                                          ? <div className="w-8 h-8 rounded-lg bg-[#EF476F]/15 border border-[#EF476F]/30 flex items-center justify-center flex-shrink-0">
+                                            <Shield size={15} className="text-[#EF476F]" />
+                                          </div>
+                                          : <div className={`flex items-center justify-center w-8 h-8 rounded-lg ${isFolder ? 'bg-muted' : 'bg-transparent'}`}>{getItemIcon(curItem.type, curItem.title)}</div>}
+                                        <div>
+                                          <p className="text-sm font-medium">{curItem.title}</p>
+                                          {isQuiz ? (
+                                            <div className="flex items-center gap-2 mt-1">
+                                              <span className="text-[10px] px-1.5 py-0.5 bg-[#EF476F]/20 text-[#EF476F] rounded font-black tracking-wider">PROCTORED</span>
+                                              <span className="text-xs text-muted-foreground">{curItem.duration}</span>
+                                            </div>
+                                          ) : curItem.duration ? (
+                                            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                                              <Clock size={12} />
+                                              {curItem.duration}
+                                            </div>
+                                          ) : null}
                                         </div>
-                                        : getItemIcon(item.type)}
-                                      <div>
-                                        <p className="text-sm font-medium">{item.title}</p>
-                                        {isQuiz ? (
-                                          <div className="flex items-center gap-2 mt-1">
-                                            <span className="text-[10px] px-1.5 py-0.5 bg-[#EF476F]/20 text-[#EF476F] rounded font-black tracking-wider">PROCTORED</span>
-                                            <span className="text-xs text-muted-foreground">{item.duration}</span>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        {isAssessmentDone ? (
+                                          <div className="flex items-center gap-2 px-3 py-1.5 bg-[#FFD166]/10 border border-[#FFD166]/30 rounded-lg">
+                                            <Star size={13} className="text-[#FFD166]" />
+                                            <span className="text-sm font-bold text-[#FFD166]">{assessmentScore}%</span>
                                           </div>
-                                        ) : item.duration ? (
-                                          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                                            <Clock size={12} />
-                                            {item.duration}
+                                        ) : curItem.completed ? (
+                                          <CheckCircle2 className="text-green-500" size={20} />
+                                        ) : isQuiz ? (
+                                          <div className="flex items-center gap-2 px-3 py-1.5 bg-[#EF476F]/15 border border-[#EF476F]/30 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Shield size={13} className="text-[#EF476F]" />
+                                            <span className="text-xs font-bold text-[#EF476F]">Start Exam</span>
                                           </div>
-                                        ) : null}
+                                        ) : isFolder ? (
+                                          <div className={`p-1 rounded-full transition-colors ${expandedFolder === curItem.id ? 'bg-[#00A896]/10 text-[#00A896]' : 'text-muted-foreground'}`}>
+                                            <ChevronDown size={20} className={`transition-transform duration-200 ${expandedFolder === curItem.id ? 'rotate-180' : ''}`} />
+                                          </div>
+                                        ) : (
+                                          <button className="opacity-0 group-hover:opacity-100 px-4 py-2 bg-[#00A896] text-white rounded-lg text-xs transition-all">
+                                            Start
+                                          </button>
+                                        )}
                                       </div>
-                                    </div>
-                                    {isAssessmentDone ? (
-                                      <div className="flex items-center gap-2 px-3 py-1.5 bg-[#FFD166]/10 border border-[#FFD166]/30 rounded-lg">
-                                        <Star size={13} className="text-[#FFD166]" />
-                                        <span className="text-sm font-bold text-[#FFD166]">{assessmentScore}%</span>
-                                      </div>
-                                    ) : item.completed ? (
-                                      <CheckCircle2 className="text-green-500" size={20} />
-                                    ) : isQuiz ? (
-                                      <div className="flex items-center gap-2 px-3 py-1.5 bg-[#EF476F]/15 border border-[#EF476F]/30 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <Shield size={13} className="text-[#EF476F]" />
-                                        <span className="text-xs font-bold text-[#EF476F]">Start Exam</span>
-                                      </div>
-                                    ) : (
-                                      <button className="opacity-0 group-hover:opacity-100 px-4 py-2 bg-[#00A896] text-white rounded-lg text-xs transition-all">
-                                        Start
-                                      </button>
+                                    </motion.div>
+                                  );
+                                };
+
+                                return (
+                                  <div key={item.id} className="space-y-3">
+                                    {renderMainItem(item)}
+                                    {item.type === 'folder' && item.items && (
+                                      <AnimatePresence>
+                                        {expandedFolder === item.id && (
+                                          <motion.div
+                                            initial={{ height: 0, opacity: 0 }}
+                                            animate={{ height: 'auto', opacity: 1 }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            className="space-y-3 overflow-hidden"
+                                          >
+                                            <div className="py-2 space-y-3">
+                                              {item.items.map((subItem: any) => renderMainItem(subItem, true))}
+                                            </div>
+                                          </motion.div>
+                                        )}
+                                      </AnimatePresence>
                                     )}
-                                  </motion.div>
+                                  </div>
                                 );
                               })}
                             </motion.div>

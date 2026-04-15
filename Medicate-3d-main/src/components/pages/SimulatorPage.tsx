@@ -5,11 +5,11 @@ import { Viewer } from '../3d/Viewer';
 import { HandGestureController, type NormalizedLandmark, type GestureControls } from '../3d/HandGestureController';
 import { VoiceCommandController } from '../3d/VoiceCommandController';
 import { AIAssistantOverlay } from '../3d/AIAssistantOverlay';
-import { GestureGuidePanel } from '../3d/GestureGuidePanel';
 import { OrganExplainerCard } from '../3d/OrganExplainerCard';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { QuizCard } from '../ui/QuizCard';
 import { TriageSimulator } from './TriageSimulator';
+import { GestureCard } from '../ui/GestureCard';
 
 export function SimulatorPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -26,15 +26,13 @@ export function SimulatorPage() {
   const [aiScreenshot, setAiScreenshot] = useState<string | null>(null);
   const [gestureControls, setGestureControls] = useState<GestureControls | null>(null);
   const [lastVoiceCommand, setLastVoiceCommand] = useState<any>(null);
-  const [gestureGuideOpen, setGestureGuideOpen] = useState(false);
   const [handLandmarks, setHandLandmarks] = useState<NormalizedLandmark[][] | null>(null);
-  const currentGesture = gestureEnabled ? (gestureControls ? 'Gesture Active' : 'Show your hand') : '';
   const [explainerOpen, setExplainerOpen] = useState(false);
-  const [isToolsOpen, setIsToolsOpen] = useState(true);
   // ── NEW: Lab mode tabs ────────────────────────────────────────────────────
   const [labMode, setLabMode] = useState<'anatomy' | 'triage'>('anatomy');
-  // OR Theater environment toggle
-  const [orTheaterMode, setOrTheaterMode] = useState(true);
+  // Gesture Handbook
+  const [handbookOpen, setHandbookOpen] = useState(false);
+  const orTheaterMode = true;
   // Anatomy layer system removed
 
   // Dissection undo/restore all refs (passed to Viewer)
@@ -269,17 +267,6 @@ export function SimulatorPage() {
             </button>
             <div className="w-px h-6 bg-border mx-1" />
             <button
-              onClick={() => setGestureGuideOpen(!gestureGuideOpen)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all ${gestureGuideOpen
-                ? 'bg-[#00A896]/10 text-[#00A896] border border-[#00A896]/20'
-                : 'bg-muted hover:bg-muted/80'
-                }`}
-              title="Gesture Guide"
-            >
-              <BookOpen size={16} />
-              <span className="hidden sm:inline text-xs">Guide</span>
-            </button>
-            <button
               onClick={() => {
                 if (gestureEnabled) {
                   // Turn off: reset gesture controls and force model back to normal
@@ -299,15 +286,15 @@ export function SimulatorPage() {
               <Hand size={16} />
               {gestureEnabled ? 'Gesture' : 'Gesture'}
             </button>
-            {/* OR Theater toggle */}
+            {/* Gesture Handbook */}
             <button
-              onClick={() => setOrTheaterMode(!orTheaterMode)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all ${orTheaterMode ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-muted hover:bg-muted/80'
+              onClick={() => setHandbookOpen(!handbookOpen)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all ${handbookOpen ? 'bg-[#EF476F]/10 text-[#EF476F] border border-[#EF476F]/20' : 'bg-muted hover:bg-muted/80'
                 }`}
-              title="Toggle OR Theater Environment"
+              title="View Handbook"
             >
-              <Building2 size={16} />
-              <span className="hidden sm:inline text-xs">OR Theater</span>
+              <BookOpen size={16} />
+              <span className="hidden sm:inline text-xs">Handbook</span>
             </button>
             <PrimaryButton onClick={() => setQuizMode(!quizMode)} icon={Play} className="text-sm px-4 py-2">
               Start Quiz
@@ -365,7 +352,7 @@ export function SimulatorPage() {
           />
 
           <HandGestureController
-            enabled={gestureEnabled}
+            enabled={gestureEnabled && !handbookOpen}
             onGestureChange={(controls) => {
               setGestureControls(controls);
               if (controls.mode !== mode) setMode(controls.mode);
@@ -389,78 +376,78 @@ export function SimulatorPage() {
             onClose={() => setExplainerOpen(false)}
           />
 
-          {/* Gesture Guide Panel */}
-          <GestureGuidePanel
-            isOpen={gestureGuideOpen}
-            onClose={() => setGestureGuideOpen(false)}
-            gestureEnabled={gestureEnabled}
-            currentGesture={currentGesture}
-          />
+          {/* Gesture Guide Panel removed as per user request */}
 
-          {/* Floating Surgical Tools Panel - ONLY visible in dissect mode on the right side */}
+          {/* Permanent Vertical Tab for Surgical Tools - ONLY visible in dissect mode on the right side */}
           {mode === 'dissection' && (
-            <div className="absolute right-4 top-20 z-[100] flex flex-col items-end pointer-events-auto">
-              <button
-                onClick={() => setIsToolsOpen(!isToolsOpen)}
-                className="mb-2 px-4 py-2 bg-black/80 backdrop-blur-md border border-[#00A896]/40 rounded-xl text-white text-sm font-bold shadow-xl flex items-center gap-2 hover:bg-black/90 transition-colors ring-1 ring-[#00A896]/20"
-              >
-                🛠️ Surgical Tools {isToolsOpen ? '▲' : '▼'}
-              </button>
-
-              {isToolsOpen && (
-                <div className="bg-black/85 backdrop-blur-md border border-white/10 rounded-2xl p-4 shadow-2xl w-44">
-                  <div className="text-[10px] text-white/50 bg-white/5 px-2 py-1 rounded text-center mb-3">
-                    Voice: "Select Scalpel"
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    {[
-                      { name: 'Scalpel', icon: '🔪', desc: 'Cut tissue' },
-                      { name: 'Forceps', icon: '🥢', desc: 'Grip & drag' },
-                      { name: 'Scissors', icon: '✂️', desc: 'Snip layers' },
-                      { name: 'Retractor', icon: '🔧', desc: 'Pull apart' },
-                      { name: 'Cautery', icon: '🔥', desc: 'Cauterize' }
-                    ].map((tool) => (
-                      <button
-                        key={tool.name}
-                        onClick={() => setSelectedTool(tool.name)}
-                        className={`flex items-center gap-3 w-full h-11 px-3 rounded-xl transition-all text-sm font-semibold border ${
-                          selectedTool === tool.name
-                            ? 'bg-[#00A896] border-[#00A896] text-white shadow-lg shadow-[#00A896]/20'
-                            : 'bg-white/5 border-white/10 hover:bg-white/15 text-white/80'
-                        }`}
-                      >
-                        <span className="text-lg">{tool.icon}</span>
-                        <div className="flex flex-col items-start">
-                          <span className="leading-tight text-xs">{tool.name}</span>
-                          <span className={`text-[9px] leading-tight ${selectedTool === tool.name ? 'text-white/70' : 'text-white/40'}`}>{tool.desc}</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Incision Depth */}
-                  <div className="mt-3 pt-3 border-t border-white/10">
-                    <label className="text-[10px] font-bold text-white/50 block text-center mb-1">Incision Depth</label>
-                    <input type="range" className="w-full accent-[#00A896]" min="0" max="100" />
-                  </div>
-
-                  {/* Undo / Restore All - only in dissection mode */}
-                  <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-white/10">
-                    <button
-                      onClick={() => undoRef.current?.()}
-                      className="w-full py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/20 transition-colors"
-                    >
-                      ↩️ Undo Last
-                    </button>
-                    <button
-                      onClick={() => restoreAllRef.current?.()}
-                      className="w-full py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-bold hover:bg-red-500/20 transition-colors"
-                    >
-                      🔄 Restore All
-                    </button>
-                  </div>
+            <div className="absolute right-0 top-0 bottom-0 w-64 bg-black/60 backdrop-blur-lg border-l border-white/10 z-[100] p-5 flex flex-col pointer-events-auto shadow-2xl">
+              <div className="flex items-center gap-2 mb-6">
+                <div className="p-2 bg-[#00A896]/20 rounded-lg text-[#00A896]">
+                  <Layers size={20} />
                 </div>
-              )}
+                <h3 className="text-white font-bold text-lg">Surgical Tools</h3>
+              </div>
+
+              <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-3">
+                <div className="text-xs text-white/50 bg-white/5 px-3 py-2 rounded-lg text-center mb-1 font-medium border border-white/5">
+                  Voice command: "Select Scalpel"
+                </div>
+                
+                {[
+                  { name: 'Scalpel', icon: '🔪', desc: 'Precision cutting' },
+                  { name: 'Forceps', icon: '🥢', desc: 'Grip & manipulate' },
+                  { name: 'Scissors', icon: '✂️', desc: 'Snip tissue layers' },
+                  { name: 'Retractor', icon: '🔧', desc: 'Hold back tissue' },
+                  { name: 'Cautery', icon: '🔥', desc: 'Burn and seal' }
+                ].map((tool) => (
+                  <button
+                    key={tool.name}
+                    onClick={() => setSelectedTool(tool.name)}
+                    className={`flex items-center gap-4 w-full p-3 rounded-xl transition-all border ${
+                      selectedTool === tool.name
+                        ? 'bg-[#00A896] border-[#00A896] text-white shadow-lg shadow-[#00A896]/30 translate-x-[-4px]'
+                        : 'bg-black/40 border-white/5 hover:bg-white/10 text-white/80 hover:border-white/20'
+                    }`}
+                  >
+                    <div className={`flex items-center justify-center w-10 h-10 rounded-lg text-xl ${selectedTool === tool.name ? 'bg-white/20' : 'bg-white/5'}`}>
+                      {tool.icon}
+                    </div>
+                    <div className="flex flex-col items-start flex-1 text-left">
+                      <span className="font-semibold text-sm">{tool.name}</span>
+                      <span className={`text-[10px] ${selectedTool === tool.name ? 'text-white/80' : 'text-white/40'}`}>{tool.desc}</span>
+                    </div>
+                    {/* Visual indicator for selected */}
+                    {selectedTool === tool.name && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse shadow-[0_0_8px_white]" />
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Incision Depth */}
+              <div className="mt-4 pt-4 border-t border-white/10">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider">Depth Sensitivity</label>
+                  <span className="text-[10px] text-[#00A896] font-bold">50%</span>
+                </div>
+                <input type="range" className="w-full accent-[#00A896] h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer" min="0" max="100" defaultValue="50" />
+              </div>
+
+              {/* Undo / Restore All */}
+              <div className="flex flex-col gap-2 mt-4 pt-4 border-t border-white/10">
+                <button
+                  onClick={() => undoRef.current?.()}
+                  className="w-full py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs font-bold hover:bg-amber-500/20 hover:text-amber-400 transition-colors flex items-center justify-center gap-2"
+                >
+                  ↩️ Undo Last Action
+                </button>
+                <button
+                  onClick={() => restoreAllRef.current?.()}
+                  className="w-full py-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-xs font-bold hover:bg-red-500/20 hover:text-red-400 transition-colors flex items-center justify-center gap-2"
+                >
+                  🔄 Reset Dissection
+                </button>
+              </div>
             </div>
           )}
 
@@ -558,6 +545,150 @@ export function SimulatorPage() {
                 </motion.div>
               )}
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Gesture Handbook Overlay */}
+      <AnimatePresence>
+        {handbookOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 30 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            style={{ 
+              position: 'fixed', 
+              top: 0, left: 0, right: 0, bottom: 0,
+              pointerEvents: 'auto', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              overflow: 'hidden', 
+              backgroundColor: 'rgba(2, 6, 23, 0.95)', 
+              backdropFilter: 'blur(32px)', 
+              WebkitBackdropFilter: 'blur(32px)',
+              zIndex: 99999 
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Inner ambient glow */}
+            <div className="absolute inset-x-0 top-0 h-64 bg-gradient-to-b from-teal-500/20 to-transparent pointer-events-none" />
+            
+            {/* Guaranteed Close Button */}
+            <button 
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setHandbookOpen(false);
+              }} 
+              style={{
+                position: 'fixed',
+                top: '90px',
+                right: '32px',
+                padding: '12px 24px',
+                backgroundColor: '#dc2626',
+                color: 'white',
+                fontWeight: '900',
+                fontSize: '16px',
+                borderRadius: '12px',
+                boxShadow: '0 10px 25px -5px rgba(220, 38, 38, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                zIndex: 100001,
+                border: '2px solid rgba(255, 255, 255, 0.2)',
+                cursor: 'pointer'
+              }}
+            >
+              <ChevronLeft size={20} />
+              CLOSE & BACK TO 3D LAB
+            </button>
+
+            {/* Header */}
+            <div className="w-full border-b border-slate-800 bg-slate-900/80 backdrop-blur-xl shrink-0 relative z-20 shadow-xl">
+              <div className="max-w-7xl mx-auto px-6 py-8 md:py-10 flex flex-col md:flex-row items-start md:items-center">
+                <div className="flex items-center gap-5">
+                  <div className="p-4 bg-teal-500/20 rounded-2xl border border-teal-500/30 shadow-inner shrink-0">
+                    <BookOpen className="w-8 h-8 md:w-10 md:h-10 text-teal-400" />
+                  </div>
+                  <div className="pr-10 md:pr-48">
+                    <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-white tracking-tight">Gesture Handbook</h2>
+                    <p className="text-base sm:text-lg text-slate-400 font-medium mt-2">Master the 3D surgical spatial controls</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Content Body */}
+            <div className="flex-1 w-full mx-auto max-w-7xl overflow-y-auto px-6 sm:px-8 py-10 space-y-16 relative z-10 custom-scrollbar overscroll-contain pb-32">
+              
+              {/* CORE SYSTEM MODES */}
+              <section>
+                <h3 className="text-xl md:text-2xl font-bold mb-6 text-teal-300 flex items-center gap-3 border-b border-slate-800 pb-4">
+                  <span className="bg-teal-500/20 px-3 py-1 rounded-lg text-sm text-teal-300 border border-teal-500/30 shadow-inner">1</span> Core System Modes
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {[
+                    { title: "Normal Mode", gesture: "Fist", desc: "Clench your hand to enter normal view. Used to rotate or observe the organ.", img: "/assets/gestures/gesture_fist.png" },
+                    { title: "Dissection Mode", gesture: "Open Hand", desc: "Open all 5 fingers to activate Dissection mode and surgical tools in the right panel.", img: "/assets/gestures/gesture_open_hand.png" },
+                    { title: "Pathology Mode", gesture: "Peace Sign", desc: "Hold up your index and middle fingers to switch to disease presentation view.", img: "/assets/gestures/gesture_peace.png" },
+                  ].map((item, i) => (
+                    <GestureCard key={i} item={item} />
+                  ))}
+                </div>
+              </section>
+
+              {/* LEFT HAND TOOLS */}
+              <section>
+                <h3 className="text-xl md:text-2xl font-bold mb-6 text-rose-400 flex items-center gap-3 border-b border-slate-800 pb-4">
+                  <span className="bg-rose-500/20 px-3 py-1 rounded-lg text-sm text-rose-400 border border-rose-500/30 shadow-inner">L</span> Left Hand: Tool Selection
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+                  {[
+                    { title: "Scalpel", gesture: "1 Finger", desc: "Hold up your index finger.", img: "/assets/gestures/gesture_point.png" },
+                    { title: "Forceps", gesture: "2 Fingers", desc: "Hold up index & middle fingers.", img: "/assets/gestures/gesture_peace.png" },
+                    { title: "Scissors", gesture: "3 Fingers", desc: "Hold up index, middle, ring.", img: "/assets/gestures/gesture_three_fingers.png" },
+                    { title: "Cautery", gesture: "4 Fingers", desc: "Hold up 4 fingers, thumb tucked.", img: "/assets/gestures/gesture_four_fingers.png" },
+                    { title: "Retractor", gesture: "5 Fingers", desc: "Open hand entirely.", img: "/assets/gestures/gesture_open_hand.png" },
+                  ].map((item, i) => (
+                    <GestureCard key={i} item={item} compact />
+                  ))}
+                </div>
+              </section>
+
+              {/* RIGHT HAND ACTIONS */}
+              <section>
+                <h3 className="text-xl md:text-2xl font-bold mb-6 text-sky-400 flex items-center gap-3 border-b border-slate-800 pb-4">
+                  <span className="bg-sky-500/20 px-3 py-1 rounded-lg text-sm text-sky-400 border border-sky-500/30 shadow-inner">R</span> Right Hand: Surgical Actions
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {[
+                    { title: "Action / Cut / Grab", gesture: "Pinch", desc: "Pinch your right index and thumb together to use the currently selected surgical tool.", img: "/assets/gestures/gesture_pinch.png" },
+                    { title: "Guide Cursor", gesture: "Pointing", desc: "Point with one finger to direct the right-hand cursor on the 3D model.", img: "/assets/gestures/gesture_point.png" },
+                  ].map((item, i) => (
+                    <GestureCard key={i} item={item} />
+                  ))}
+                </div>
+              </section>
+
+              {/* CAMERA & SYSTEM ACTIONS */}
+              <section>
+                <h3 className="text-xl md:text-2xl font-bold mb-6 text-amber-400 flex items-center gap-3 border-b border-slate-800 pb-4">
+                  <span className="bg-amber-500/20 px-3 py-1 rounded-lg text-sm text-amber-400 border border-amber-500/30 shadow-inner">⟳</span> System & Camera Actions
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {[
+                    { title: "Rotate Model", gesture: "Fist / Point", desc: "In Normal Mode, make a fist or point and Drag to rotate.", img: "/assets/gestures/gesture_point.png" },
+                    { title: "Zoom In / Out", gesture: "Pinch", desc: "In Normal Mode, pinch index and thumb and move hand closer/further.", img: "/assets/gestures/gesture_pinch.png" },
+                    { title: "Restore / Heal", gesture: "Both Fists", desc: "Make a fist with BOTH hands near each other to instantly restore/heal the organ.", img: "/assets/gestures/gesture_both_fists.png" },
+                  ].map((item, i) => (
+                    <GestureCard key={i} item={item} />
+                  ))}
+                </div>
+              </section>
+
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

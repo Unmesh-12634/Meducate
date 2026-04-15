@@ -1,0 +1,7 @@
+D:\Meducate\Medicate-3d-main\Medicate-3d-main\build\brain.glb
+D:\Meducate\Medicate-3d-main\Medicate-3d-main\build\fullbrain.glb
+D:\Meducate\Medicate-3d-main\Medicate-3d-main\build\models\brain.glb
+D:\Meducate\Medicate-3d-main\Medicate-3d-main\Medicate-3d-main\public\brain.glb
+D:\Meducate\Medicate-3d-main\Medicate-3d-main\Medicate-3d-main\public\models\brain.glb
+D:\Meducate\Medicate-3d-main\Medicate-3d-main\public\brain.glb
+D:\Meducate\Medicate-3d-main\Medicate-3d-main\public\models\brain.glb
